@@ -11,6 +11,11 @@ export function getVideoThumbnail(url: string): string {
     return "/instagram-video.png"
   }
 
+  // TikTok - placeholder
+  if (url.includes("tiktok.com")) {
+    return "/video-thumbnail.png"
+  }
+
   // MP4 or other
   if (url.endsWith(".mp4") || url.endsWith(".mov")) {
     return "/video-thumbnail.png"
@@ -25,6 +30,13 @@ export function getVideoEmbedUrl(url: string): string {
   const youtubeMatch = url.match(youtubeRegex)
   if (youtubeMatch) {
     return `https://www.youtube.com/embed/${youtubeMatch[1]}`
+  }
+
+  // TikTok
+  const tiktokRegex = /tiktok\.com\/(?:@[^/]+\/video\/|v\/)(\d+)/
+  const tiktokMatch = url.match(tiktokRegex)
+  if (tiktokMatch) {
+    return `https://www.tiktok.com/embed/v2/${tiktokMatch[1]}`
   }
 
   // Instagram - return original
@@ -42,6 +54,7 @@ export function isVideoUrl(url: string): boolean {
     url.includes("youtube.com") ||
     url.includes("youtu.be") ||
     url.includes("instagram.com") ||
+    url.includes("tiktok.com") ||
     url.endsWith(".mp4") ||
     url.endsWith(".mov") ||
     url.endsWith(".webm")

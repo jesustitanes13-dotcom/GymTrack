@@ -19,6 +19,7 @@ export default function VideosView() {
 
   useEffect(() => {
     setVideos(storageService.getVideos())
+    void storageService.fetchVideos().then(setVideos)
   }, [])
 
   const addVideo = () => {

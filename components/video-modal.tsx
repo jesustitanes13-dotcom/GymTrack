@@ -21,6 +21,7 @@ export default function VideoModal({ videoUrl, onClose }: VideoModalProps) {
   const embedUrl = getVideoEmbedUrl(videoUrl)
   const isDirectVideo = videoUrl.endsWith(".mp4") || videoUrl.endsWith(".mov") || videoUrl.endsWith(".webm")
   const isYouTube = embedUrl.includes("youtube.com")
+  const isTikTok = embedUrl.includes("tiktok.com/embed")
 
   return (
     <div className="fixed inset-0 z-50 bg-black/90 flex items-center justify-center p-4" onClick={onClose}>
@@ -39,7 +40,7 @@ export default function VideoModal({ videoUrl, onClose }: VideoModalProps) {
       >
         {isDirectVideo ? (
           <video src={embedUrl} controls autoPlay className="w-full h-full" />
-        ) : isYouTube ? (
+        ) : isYouTube || isTikTok ? (
           <iframe
             src={embedUrl}
             className="w-full h-full"

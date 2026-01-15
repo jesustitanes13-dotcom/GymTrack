@@ -20,6 +20,7 @@ export default function WeekCalendar({ onDaySelect }: WeekCalendarProps) {
 
   useEffect(() => {
     setRoutines(storageService.getRoutines())
+    void storageService.fetchRoutines().then(setRoutines)
     const today = new Date().toLocaleDateString("es-ES", { weekday: "long" })
     const capitalizedDay = today.charAt(0).toUpperCase() + today.slice(1)
     setCurrentDay(capitalizedDay)
