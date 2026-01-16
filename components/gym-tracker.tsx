@@ -12,6 +12,7 @@ import VisualProgressView from "./visual-progress-view"
 import RemindersView from "./reminders-view"
 import RestTimer from "./rest-timer"
 import ReminderScheduler from "./reminder-scheduler"
+import SupabaseAuth from "./supabase-auth"
 import { storageService } from "@/lib/storage"
 import type { RestSettings } from "@/lib/types"
 
@@ -49,7 +50,7 @@ export default function GymTracker() {
     <div className="min-h-screen bg-background">
       <ReminderScheduler />
       <header className="sticky top-0 z-50 bg-card border-b border-border backdrop-blur-sm bg-card/95">
-        <div className="container max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="container max-w-7xl mx-auto px-4 py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-primary rounded-lg">
               <Dumbbell className="h-6 w-6 text-primary-foreground" />
@@ -59,6 +60,7 @@ export default function GymTracker() {
               <p className="text-xs text-muted-foreground">Tu progreso, tu éxito</p>
             </div>
           </div>
+          <SupabaseAuth />
         </div>
       </header>
 

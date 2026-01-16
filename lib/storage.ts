@@ -12,6 +12,9 @@ const STORAGE_KEYS = {
   REMINDER_LAST_SENT: "gym_tracker_reminder_last_sent",
 }
 
+const USER_ID_KEY = "gym_tracker_user_id"
+let currentUserId: string | null = null
+
 const DEFAULT_REST_SETTINGS: RestSettings = {
   durationSeconds: 90,
   soundEnabled: true,
@@ -31,6 +34,12 @@ const DEFAULT_MUSCLE_GROUP: MuscleGroup = "Otro"
 type SaveOptions = { syncRemote?: boolean }
 
 export const storageService = {
+  setUserId: (userId: string | null) => {
+    setCachedUserId(userId)
+  },
+
+  getUserId: () => getCachedUserId(),
+
   // Routines
   getRoutines: (): Routine[] => {
     if (typeof window === "undefined") return []
@@ -233,21 +242,59 @@ export const storageService = {
   },
 }
 
-// Requiere tabla `app_data` con columnas: key (text PK), value (jsonb), updated_at (timestamptz).
+// Requiere tabla `app_data` con columnas: user_id (uuid), key (text), value (jsonb), updated_at (timestamptz).
 async function syncToSupabase<T>(key: string, value: T) {
   if (!supabase) return
-  await supabase.from("app_data").upsert({
-    key,
-    value,
-    updated_at: new Date().toISOString(),
-  })
+  const userId = await resolveUserId()
+  if (!userId) return
+  await supabase.from("app_data").upsert(
+    {
+      user_id: userId,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,key" },
+  )
 }
 
 async function fetchFromSupabase<T>(key: string): Promise<T | null> {
   if (!supabase) return null
-  const { data, error } = await supabase.from("app_data").select("value").eq("key", key).maybeSingle()
+  const userId = await resolveUserId()
+  if (!userId) return null
+  const { data, error } = await supabase.from("app_data").select("value").eq("user_id", userId).eq("key", key).maybeSingle()
   if (error || !data?.value) return null
   return data.value as T
+}
+
+function getCachedUserId() {
+  if (currentUserId) return currentUserId
+  if (typeof window === "undefined") return null
+  const stored = localStorage.getItem(USER_ID_KEY)
+  currentUserId = stored
+  return stored
+}
+
+function setCachedUserId(userId: string | null) {
+  currentUserId = userId
+  if (typeof window === "undefined") return
+  if (userId) {
+    localStorage.setItem(USER_ID_KEY, userId)
+  } else {
+    localStorage.removeItem(USER_ID_KEY)
+  }
+}
+
+async function resolveUserId() {
+  if (!supabase) return null
+  const cached = getCachedUserId()
+  if (cached) return cached
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id ?? null
+  if (userId) {
+    setCachedUserId(userId)
+  }
+  return userId
 }
 
 function normalizeRoutine(routine: Routine): Routine {
