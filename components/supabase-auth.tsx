@@ -19,6 +19,12 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
   useEffect(() => {
     if (!supabase) return
     let isMounted = true
+    const authError = parseAuthErrorFromHash()
+    if (authError) {
+      setStatus("error")
+      setMessage(authError)
+      clearAuthHash()
+    }
 
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return
@@ -51,10 +57,11 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
     if (!supabase || !email) return
     setStatus("sending")
     setMessage(null)
+    const redirectTo = getAuthRedirectUrl()
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: {
-        emailRedirectTo: window.location.origin,
+        emailRedirectTo: redirectTo,
       },
     })
     if (error) {
@@ -114,4 +121,36 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
       {message && <span className="text-[11px] text-muted-foreground">{message}</span>}
     </div>
   )
+}
+
+function getAuthRedirectUrl() {
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL
+  if (envUrl) return envUrl
+  if (typeof window === "undefined") return ""
+  return window.location.origin
+}
+
+function parseAuthErrorFromHash() {
+  if (typeof window === "undefined") return null
+  if (!window.location.hash) return null
+  const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash
+  const params = new URLSearchParams(hash)
+  const error = params.get("error")
+  const errorCode = params.get("error_code")
+  const errorDescription = params.get("error_description")
+  if (!error && !errorCode) return null
+
+  if (errorCode === "otp_expired") {
+    return "El enlace expiró. Solicita un nuevo enlace desde la app."
+  }
+  if (error === "access_denied") {
+    return "Enlace inválido o vencido. Genera uno nuevo."
+  }
+  return errorDescription ? decodeURIComponent(errorDescription.replace(/\+/g, " ")) : "Error de autenticación."
+}
+
+function clearAuthHash() {
+  if (typeof window === "undefined") return
+  if (!window.location.hash) return
+  window.history.replaceState(null, document.title, window.location.pathname + window.location.search)
 }
