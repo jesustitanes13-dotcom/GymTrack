@@ -10,7 +10,7 @@ import type { ProgressPhoto } from "@/lib/types"
 import { formatMonthLabel } from "@/lib/workout-utils"
 import { Camera, ImagePlus } from "lucide-react"
 
-export default function VisualProgressView() {
+export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [entries, setEntries] = useState<ProgressPhoto[]>([])
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey())
   const [frontPreview, setFrontPreview] = useState("")
@@ -19,7 +19,7 @@ export default function VisualProgressView() {
   useEffect(() => {
     setEntries(storageService.getPhotos())
     void storageService.fetchPhotos().then(setEntries)
-  }, [])
+  }, [syncVersion])
 
   const monthOptions = useMemo(() => {
     const all = new Set([getCurrentMonthKey(), ...entries.map((entry) => entry.month)])

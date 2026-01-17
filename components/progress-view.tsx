@@ -19,7 +19,7 @@ type AiState = {
   source: "openai" | "fallback"
 }
 
-export default function ProgressView() {
+export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [selectedExercise, setSelectedExercise] = useState<string>("")
   const [exercises, setExercises] = useState<string[]>([])
@@ -31,7 +31,7 @@ export default function ProgressView() {
     const allLogs = storageService.getLogs()
     setLogs(allLogs)
     void storageService.fetchLogs().then(setLogs)
-  }, [])
+  }, [syncVersion])
 
   useEffect(() => {
     const uniqueExercises = Array.from(new Set(logs.map((log) => log.exerciseName))).filter(Boolean)

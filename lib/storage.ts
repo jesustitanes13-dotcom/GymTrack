@@ -40,6 +40,36 @@ export const storageService = {
 
   getUserId: () => getCachedUserId(),
 
+  fetchAll: async () => {
+    const results = await Promise.allSettled([
+      storageService.fetchRoutines(),
+      storageService.fetchLogs(),
+      storageService.fetchVideos(),
+      storageService.fetchPhotos(),
+      storageService.fetchReminderSettings(),
+      storageService.fetchRestSettings(),
+    ])
+    return results
+  },
+
+  subscribeToRemoteUpdates: async (onUpdate: () => void) => {
+    if (!supabase) return () => {}
+    const userId = await resolveUserId()
+    if (!userId) return () => {}
+    const channel = supabase
+      .channel(`app-data-sync-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_data", filter: `user_id=eq.${userId}` },
+        () => onUpdate(),
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  },
+
   // Routines
   getRoutines: (): Routine[] => {
     if (typeof window === "undefined") return []

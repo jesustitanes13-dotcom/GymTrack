@@ -21,11 +21,40 @@ export default function GymTracker() {
   const [activeTab, setActiveTab] = useState("calendar")
   const [restSettings, setRestSettings] = useState<RestSettings>(storageService.getRestSettings())
   const [restStartSignal, setRestStartSignal] = useState(0)
+  const [syncVersion, setSyncVersion] = useState(0)
+  const [userId, setUserId] = useState<string | null>(storageService.getUserId())
 
   useEffect(() => {
     setRestSettings(storageService.getRestSettings())
     void storageService.fetchRestSettings().then(setRestSettings)
   }, [])
+
+  useEffect(() => {
+    if (!userId) return
+    let isMounted = true
+    let unsubscribe: (() => void) | null = null
+
+    void storageService.fetchAll().then(() => {
+      if (isMounted) setSyncVersion((prev) => prev + 1)
+    })
+
+    storageService.subscribeToRemoteUpdates(() => {
+      void storageService.fetchAll().then(() => {
+        if (isMounted) setSyncVersion((prev) => prev + 1)
+      })
+    }).then((cleanup) => {
+      unsubscribe = cleanup
+    })
+
+    return () => {
+      isMounted = false
+      if (unsubscribe) unsubscribe()
+    }
+  }, [userId])
+
+  useEffect(() => {
+    setRestSettings(storageService.getRestSettings())
+  }, [syncVersion])
 
   const handleDaySelect = (day: string) => {
     setSelectedDay(day)
@@ -60,7 +89,7 @@ export default function GymTracker() {
               <p className="text-xs text-muted-foreground">Tu progreso, tu éxito</p>
             </div>
           </div>
-          <SupabaseAuth />
+          <SupabaseAuth onAuthChange={setUserId} />
         </div>
       </header>
 
@@ -125,31 +154,36 @@ export default function GymTracker() {
           <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
             <div className="space-y-6 order-last lg:order-first">
               <TabsContent value="calendar" className="mt-0">
-                <WeekCalendar onDaySelect={handleDaySelect} />
+                <WeekCalendar onDaySelect={handleDaySelect} syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="routine" className="mt-0">
-                <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} onRestStart={handleRestStart} />
+                <RoutineView
+                  selectedDay={selectedDay}
+                  onBack={handleBackToCalendar}
+                  onRestStart={handleRestStart}
+                  syncVersion={syncVersion}
+                />
               </TabsContent>
 
               <TabsContent value="progress" className="mt-0">
-                <ProgressView />
+                <ProgressView syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="insights" className="mt-0">
-                <InsightsView />
+                <InsightsView syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="visual" className="mt-0">
-                <VisualProgressView />
+                <VisualProgressView syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="reminders" className="mt-0">
-                <RemindersView />
+                <RemindersView syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="videos" className="mt-0">
-                <VideosView />
+                <VideosView syncVersion={syncVersion} />
               </TabsContent>
             </div>
             <div className="order-first lg:order-last lg:sticky lg:top-28 h-fit">

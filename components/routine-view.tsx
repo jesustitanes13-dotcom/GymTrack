@@ -20,9 +20,10 @@ interface RoutineViewProps {
   selectedDay: string | null
   onBack: () => void
   onRestStart?: () => void
+  syncVersion?: number
 }
 
-export default function RoutineView({ selectedDay, onBack, onRestStart }: RoutineViewProps) {
+export default function RoutineView({ selectedDay, onBack, onRestStart, syncVersion = 0 }: RoutineViewProps) {
   const [routine, setRoutine] = useState<Routine | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
@@ -44,7 +45,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart }: Routin
       updateRoutine(storageService.getRoutines())
       void storageService.fetchRoutines().then(updateRoutine)
     }
-  }, [selectedDay])
+  }, [selectedDay, syncVersion])
 
   const saveRoutine = () => {
     if (!routine) return

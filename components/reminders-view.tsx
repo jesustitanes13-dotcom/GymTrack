@@ -12,7 +12,7 @@ import { Bell, Mail } from "lucide-react"
 
 const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
-export default function RemindersView() {
+export default function RemindersView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [settings, setSettings] = useState<ReminderSettings>(storageService.getReminderSettings())
   const [permission, setPermission] = useState<NotificationPermission>("default")
 
@@ -22,7 +22,7 @@ export default function RemindersView() {
     if (typeof window !== "undefined" && "Notification" in window) {
       setPermission(Notification.permission)
     }
-  }, [])
+  }, [syncVersion])
 
   const updateSettings = (partial: Partial<ReminderSettings>) => {
     const updated = { ...settings, ...partial }

@@ -10,7 +10,7 @@ import { storageService } from "@/lib/storage"
 
 type Status = "idle" | "sending" | "sent" | "error"
 
-export default function SupabaseAuth() {
+export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId: string | null) => void }) {
   const [session, setSession] = useState<Session | null>(null)
   const [email, setEmail] = useState("")
   const [status, setStatus] = useState<Status>("idle")
@@ -23,7 +23,9 @@ export default function SupabaseAuth() {
     supabase.auth.getSession().then(({ data }) => {
       if (!isMounted) return
       setSession(data.session)
-      storageService.setUserId(data.session?.user?.id ?? null)
+      const userId = data.session?.user?.id ?? null
+      storageService.setUserId(userId)
+      onAuthChange?.(userId)
       if (data.session?.user?.email) {
         setEmail(data.session.user.email)
       }
@@ -31,7 +33,9 @@ export default function SupabaseAuth() {
 
     const { data } = supabase.auth.onAuthStateChange((_event, nextSession) => {
       setSession(nextSession)
-      storageService.setUserId(nextSession?.user?.id ?? null)
+      const userId = nextSession?.user?.id ?? null
+      storageService.setUserId(userId)
+      onAuthChange?.(userId)
       if (nextSession?.user?.email) {
         setEmail(nextSession.user.email)
       }
@@ -66,6 +70,7 @@ export default function SupabaseAuth() {
     if (!supabase) return
     await supabase.auth.signOut()
     storageService.setUserId(null)
+    onAuthChange?.(null)
     setSession(null)
     setStatus("idle")
     setMessage(null)

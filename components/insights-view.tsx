@@ -9,7 +9,7 @@ import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Toolti
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
 import { BarChart3, Dumbbell } from "lucide-react"
 
-export default function InsightsView() {
+export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [routines, setRoutines] = useState<Routine[]>([])
 
@@ -18,7 +18,7 @@ export default function InsightsView() {
     void storageService.fetchLogs().then(setLogs)
     setRoutines(storageService.getRoutines())
     void storageService.fetchRoutines().then(setRoutines)
-  }, [])
+  }, [syncVersion])
 
   const exerciseMap = useMemo(() => {
     const map = new Map<string, MuscleGroup>()
