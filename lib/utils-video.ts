@@ -25,7 +25,7 @@ export function getVideoThumbnail(url: string): string {
 export function getVideoEmbedUrl(url: string): string {
   const youtubeId = getYouTubeId(url)
   if (youtubeId) {
-    return `https://www.youtube.com/embed/${youtubeId}`
+    return `https://www.youtube.com/embed/${youtubeId}?playsinline=1`
   }
 
   // TikTok

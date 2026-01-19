@@ -44,6 +44,7 @@ export default function VideoModal({ videoUrl, onClose }: VideoModalProps) {
           <iframe
             src={embedUrl}
             className="w-full h-full"
+            title="Reproductor de video"
             allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
             allowFullScreen
           />
