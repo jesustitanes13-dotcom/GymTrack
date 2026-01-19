@@ -99,17 +99,45 @@ export default function VideosView({ syncVersion = 0 }: { syncVersion?: number }
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {videos.map((video) => (
             <Card key={video.id} className="overflow-hidden group">
-              <div className="relative aspect-video bg-muted">
+              <div
+                className="relative aspect-video bg-muted cursor-pointer"
+                role="button"
+                tabIndex={0}
+                aria-label={`Reproducir ${video.name}`}
+                onClick={() => setSelectedVideo(video.url)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault()
+                    setSelectedVideo(video.url)
+                  }
+                }}
+              >
                 <img
                   src={getVideoThumbnail(video.url) || "/placeholder.svg"}
                   alt={video.name}
                   className="w-full h-full object-cover"
                 />
-                <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Button size="icon" variant="secondary" onClick={() => setSelectedVideo(video.url)}>
+                <div className="absolute inset-0 bg-black/60 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    aria-label={`Reproducir ${video.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      setSelectedVideo(video.url)
+                    }}
+                  >
                     <Play className="h-5 w-5" />
                   </Button>
-                  <Button size="icon" variant="secondary" onClick={() => window.open(video.url, "_blank")}>
+                  <Button
+                    size="icon"
+                    variant="secondary"
+                    aria-label={`Abrir ${video.name} en nueva pestaña`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      window.open(video.url, "_blank")
+                    }}
+                  >
                     <ExternalLink className="h-5 w-5" />
                   </Button>
                 </div>

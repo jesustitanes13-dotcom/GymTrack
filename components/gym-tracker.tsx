@@ -39,10 +39,8 @@ export default function GymTracker() {
     })
 
     storageService.subscribeToRemoteUpdates(() => {
-      void storageService.fetchAll().then(() => {
-        if (isMounted) setSyncVersion((prev) => prev + 1)
-      })
-    }).then((cleanup) => {
+      if (isMounted) setSyncVersion((prev) => prev + 1)
+    }, userId).then((cleanup) => {
       unsubscribe = cleanup
     })
 
