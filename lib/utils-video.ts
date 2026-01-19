@@ -64,18 +64,18 @@ function getYouTubeId(url: string): string | null {
   try {
     parsed = new URL(normalized)
   } catch {
-    return null
+    return getYouTubeIdFromText(url)
   }
 
   const hostname = parsed.hostname.replace("www.", "")
   const isYouTubeDomain =
     hostname === "youtu.be" ||
     hostname === "youtube.com" ||
-    hostname === "m.youtube.com" ||
-    hostname === "music.youtube.com" ||
-    hostname === "youtube-nocookie.com"
+    hostname.endsWith(".youtube.com") ||
+    hostname === "youtube-nocookie.com" ||
+    hostname.endsWith(".youtube-nocookie.com")
 
-  if (!isYouTubeDomain) return null
+  if (!isYouTubeDomain) return getYouTubeIdFromText(url)
 
   let id: string | null = null
   if (hostname === "youtu.be") {
@@ -93,5 +93,12 @@ function getYouTubeId(url: string): string | null {
   }
 
   const match = id?.match(/[a-zA-Z0-9_-]{11}/)
-  return match ? match[0] : null
+  return match ? match[0] : getYouTubeIdFromText(url)
+}
+
+function getYouTubeIdFromText(url: string): string | null {
+  const match = url.match(
+    /(?:youtu\.be\/|youtube(?:-nocookie)?\.com\/(?:watch\?v=|shorts\/|embed\/|v\/|live\/))([a-zA-Z0-9_-]{11})/,
+  )
+  return match ? match[1] : null
 }
