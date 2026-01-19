@@ -25,11 +25,13 @@ export interface Exercise {
 }
 
 export interface Routine {
+  id?: string
   day: string
   exercises: Exercise[]
 }
 
 export interface WorkoutLog {
+  id?: string
   exerciseId: string
   exerciseName: string
   date: string

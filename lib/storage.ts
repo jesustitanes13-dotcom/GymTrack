@@ -52,21 +52,39 @@ export const storageService = {
     return results
   },
 
-  subscribeToRemoteUpdates: async (onUpdate: () => void) => {
+  subscribeToRemoteUpdates: async (onUpdate: () => void, userIdOverride?: string | null) => {
     if (!supabase) return () => {}
-    const userId = await resolveUserId()
+    const userId = userIdOverride ?? (await resolveUserId())
     if (!userId) return () => {}
     const channel = supabase
-      .channel(`app-data-sync-${userId}`)
+      .channel(`workout-realtime-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workouts", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const updated = applyWorkoutRealtimeChange(payload)
+          if (updated) onUpdate()
+        },
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "workout_logs", filter: `user_id=eq.${userId}` },
+        (payload) => {
+          const updated = applyWorkoutLogRealtimeChange(payload)
+          if (updated) onUpdate()
+        },
+      )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "app_data", filter: `user_id=eq.${userId}` },
-        () => onUpdate(),
+        () => {
+          onUpdate()
+        },
       )
       .subscribe()
 
     return () => {
-      void supabase.removeChannel(channel)
+      void channel.unsubscribe()
     }
   },
 
@@ -80,17 +98,27 @@ export const storageService = {
 
   saveRoutines: (routines: Routine[], options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
-    localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(routines))
+    const routinesWithIds = routines.map((routine) => ({
+      ...routine,
+      id: routine.id ?? generateLocalId(),
+    }))
+    localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(routinesWithIds))
     if (options.syncRemote !== false) {
-      void syncToSupabase(STORAGE_KEYS.ROUTINES, routines)
+      void syncToSupabase(STORAGE_KEYS.ROUTINES, routinesWithIds)
+      void syncWorkoutsToSupabase(routinesWithIds)
     }
   },
 
   fetchRoutines: async (): Promise<Routine[]> => {
-    const remote = await fetchFromSupabase<Routine[]>(STORAGE_KEYS.ROUTINES)
-    if (remote) {
-      storageService.saveRoutines(remote, { syncRemote: false })
-      return remote.map(normalizeRoutine)
+    const workoutsRemote = await fetchWorkoutsFromSupabase()
+    if (workoutsRemote) {
+      storageService.saveRoutines(workoutsRemote, { syncRemote: false })
+      return workoutsRemote.map(normalizeRoutine)
+    }
+    const legacyRemote = await fetchFromSupabase<Routine[]>(STORAGE_KEYS.ROUTINES)
+    if (legacyRemote) {
+      storageService.saveRoutines(legacyRemote, { syncRemote: false })
+      return legacyRemote.map(normalizeRoutine)
     }
     return storageService.getRoutines()
   },
@@ -105,9 +133,14 @@ export const storageService = {
 
   saveLogs: (logs: WorkoutLog[], options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs))
+    const logsWithIds = logs.map((log) => ({
+      ...log,
+      id: log.id ?? generateLocalId(),
+    }))
+    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logsWithIds))
     if (options.syncRemote !== false) {
-      void syncToSupabase(STORAGE_KEYS.LOGS, logs)
+      void syncToSupabase(STORAGE_KEYS.LOGS, logsWithIds)
+      void syncWorkoutLogsToSupabase(logsWithIds)
     }
   },
 
@@ -115,20 +148,27 @@ export const storageService = {
     const logs = storageService.getLogs()
     const { sets, reps } = parseSetsReps(log.setsReps)
     const volume = calculateVolume(log.weight, log.setsReps)
-    logs.push({
+    const nextLog: WorkoutLog = {
       ...log,
+      id: log.id ?? generateLocalId(),
       sets: log.sets ?? sets,
       reps: log.reps ?? reps,
       volume: log.volume ?? volume,
-    })
+    }
+    logs.push(nextLog)
     storageService.saveLogs(logs)
   },
 
   fetchLogs: async (): Promise<WorkoutLog[]> => {
-    const remote = await fetchFromSupabase<WorkoutLog[]>(STORAGE_KEYS.LOGS)
-    if (remote) {
-      storageService.saveLogs(remote, { syncRemote: false })
-      return normalizeLogs(remote)
+    const logsRemote = await fetchWorkoutLogsFromSupabase()
+    if (logsRemote) {
+      storageService.saveLogs(logsRemote, { syncRemote: false })
+      return normalizeLogs(logsRemote)
+    }
+    const legacyRemote = await fetchFromSupabase<WorkoutLog[]>(STORAGE_KEYS.LOGS)
+    if (legacyRemote) {
+      storageService.saveLogs(legacyRemote, { syncRemote: false })
+      return normalizeLogs(legacyRemote)
     }
     return storageService.getLogs()
   },
@@ -297,6 +337,70 @@ async function fetchFromSupabase<T>(key: string): Promise<T | null> {
   return data.value as T
 }
 
+type RealtimePayload<T> = {
+  eventType?: string
+  new?: T
+  old?: T
+}
+
+type WorkoutRow = Routine & { user_id?: string; data?: Routine; value?: Routine }
+type WorkoutLogRow = WorkoutLog & { user_id?: string; data?: WorkoutLog; value?: WorkoutLog }
+
+async function fetchWorkoutsFromSupabase(): Promise<Routine[] | null> {
+  if (!supabase) return null
+  const userId = await resolveUserId()
+  if (!userId) return null
+  const { data, error } = await supabase.from("workouts").select("*").eq("user_id", userId)
+  if (error || !data?.length) return null
+  const routines = data.map((row) => toRoutineValue(row)).filter(Boolean) as Routine[]
+  return routines.length ? routines : null
+}
+
+async function fetchWorkoutLogsFromSupabase(): Promise<WorkoutLog[] | null> {
+  if (!supabase) return null
+  const userId = await resolveUserId()
+  if (!userId) return null
+  const { data, error } = await supabase.from("workout_logs").select("*").eq("user_id", userId)
+  if (error || !data?.length) return null
+  const logs = data.map((row) => toWorkoutLogValue(row)).filter(Boolean) as WorkoutLog[]
+  return logs.length ? logs : null
+}
+
+async function syncWorkoutsToSupabase(routines: Routine[]) {
+  if (!supabase) return
+  const userId = await resolveUserId()
+  if (!userId) return
+  const payload = routines.map((routine) => ({
+    id: routine.id,
+    user_id: userId,
+    day: routine.day,
+    exercises: routine.exercises,
+    updated_at: new Date().toISOString(),
+  }))
+  await supabase.from("workouts").upsert(payload, { onConflict: "id" })
+}
+
+async function syncWorkoutLogsToSupabase(logs: WorkoutLog[]) {
+  if (!supabase) return
+  const userId = await resolveUserId()
+  if (!userId) return
+  const payload = logs.map((log) => ({
+    id: log.id,
+    user_id: userId,
+    exercise_id: log.exerciseId,
+    exercise_name: log.exerciseName,
+    date: log.date,
+    weight: log.weight,
+    sets_reps: log.setsReps,
+    muscle_group: log.muscleGroup ?? null,
+    sets: log.sets ?? null,
+    reps: log.reps ?? null,
+    volume: log.volume ?? null,
+    updated_at: new Date().toISOString(),
+  }))
+  await supabase.from("workout_logs").upsert(payload, { onConflict: "id" })
+}
+
 function getCachedUserId() {
   if (currentUserId) return currentUserId
   if (typeof window === "undefined") return null
@@ -338,6 +442,244 @@ function normalizeRoutine(routine: Routine): Routine {
       completed: Boolean(exercise.completed),
     })),
   }
+}
+
+function generateLocalId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID()
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
+}
+
+function toRoutineValue(row: Record<string, unknown> | null | undefined): Routine | null {
+  if (!row) return null
+  const raw = (row as { data?: Routine; value?: Routine }).data ?? (row as { value?: Routine }).value ?? (row as Routine)
+  const day = (raw as Routine).day ?? (row as Routine).day
+  if (!day) return null
+  const exercises = Array.isArray((raw as Routine).exercises)
+    ? (raw as Routine).exercises
+    : Array.isArray((row as Routine).exercises)
+      ? (row as Routine).exercises
+      : []
+  const id = (row as { id?: string }).id ?? (raw as { id?: string }).id
+  return normalizeRoutine({
+    ...(raw as Routine),
+    id,
+    day,
+    exercises,
+  })
+}
+
+type RoutineIdentity = { id?: string; day?: string }
+
+function toRoutineIdentity(row: Record<string, unknown> | null | undefined): RoutineIdentity | null {
+  if (!row) return null
+  const raw = (row as { data?: Routine; value?: Routine }).data ?? (row as { value?: Routine }).value ?? (row as Routine)
+  const id = (row as { id?: string }).id ?? (raw as { id?: string }).id
+  const day = (raw as Routine).day ?? (row as Routine).day
+  if (!id && !day) return null
+  return { id, day }
+}
+
+function replaceRoutineById(items: Routine[], next: Routine): Routine[] {
+  if (next.id) {
+    let updated = false
+    const mapped = items.map((item) => {
+      if (item.id === next.id) {
+        updated = true
+        return { ...item, ...next }
+      }
+      return item
+    })
+    if (updated) return mapped
+  }
+  if (next.day) {
+    let updated = false
+    const mapped = items.map((item) => {
+      if (item.day === next.day) {
+        updated = true
+        return { ...item, ...next }
+      }
+      return item
+    })
+    if (updated) return mapped
+  }
+  return items
+}
+
+function upsertRoutineById(items: Routine[], next: Routine): Routine[] {
+  const replaced = replaceRoutineById(items, next)
+  if (replaced !== items) return replaced
+  return [...items, next]
+}
+
+function removeRoutineByIdentity(items: Routine[], identity: RoutineIdentity | null): Routine[] {
+  if (!identity) return items
+  if (identity.id) {
+    const filtered = items.filter((item) => item.id !== identity.id)
+    if (filtered.length !== items.length) return filtered
+  }
+  if (identity.day) {
+    const filtered = items.filter((item) => item.day !== identity.day)
+    if (filtered.length !== items.length) return filtered
+  }
+  return items
+}
+
+type WorkoutLogIdentity = { id?: string; exerciseId?: string; exerciseName?: string; date?: string }
+
+function toWorkoutLogValue(row: Record<string, unknown> | null | undefined): WorkoutLog | null {
+  if (!row) return null
+  const raw = (row as { data?: WorkoutLog; value?: WorkoutLog }).data ?? (row as { value?: WorkoutLog }).value ?? (row as WorkoutLog)
+  const id = (row as { id?: string }).id ?? (raw as { id?: string }).id
+  const exerciseId =
+    (raw as { exerciseId?: string }).exerciseId ??
+    (raw as { exercise_id?: string }).exercise_id ??
+    (row as { exercise_id?: string }).exercise_id ??
+    ""
+  const exerciseName =
+    (raw as { exerciseName?: string }).exerciseName ??
+    (raw as { exercise_name?: string }).exercise_name ??
+    (row as { exercise_name?: string }).exercise_name ??
+    ""
+  const date = (raw as { date?: string }).date ?? (row as { date?: string }).date ?? ""
+  const setsReps =
+    (raw as { setsReps?: string }).setsReps ??
+    (raw as { sets_reps?: string }).sets_reps ??
+    (row as { sets_reps?: string }).sets_reps ??
+    ""
+  const weight = Number((raw as { weight?: number }).weight ?? (row as { weight?: number }).weight ?? 0)
+  const muscleGroup =
+    (raw as { muscleGroup?: MuscleGroup }).muscleGroup ??
+    (raw as { muscle_group?: MuscleGroup }).muscle_group ??
+    (row as { muscle_group?: MuscleGroup }).muscle_group
+  const log: WorkoutLog = {
+    ...(raw as WorkoutLog),
+    id,
+    exerciseId,
+    exerciseName,
+    date,
+    weight,
+    setsReps,
+    muscleGroup,
+  }
+  return normalizeLogs([log])[0] ?? log
+}
+
+function toWorkoutLogIdentity(row: Record<string, unknown> | null | undefined): WorkoutLogIdentity | null {
+  if (!row) return null
+  const raw = (row as { data?: WorkoutLog; value?: WorkoutLog }).data ?? (row as { value?: WorkoutLog }).value ?? (row as WorkoutLog)
+  const id = (row as { id?: string }).id ?? (raw as { id?: string }).id
+  const exerciseId =
+    (raw as { exerciseId?: string }).exerciseId ??
+    (raw as { exercise_id?: string }).exercise_id ??
+    (row as { exercise_id?: string }).exercise_id
+  const exerciseName =
+    (raw as { exerciseName?: string }).exerciseName ??
+    (raw as { exercise_name?: string }).exercise_name ??
+    (row as { exercise_name?: string }).exercise_name
+  const date = (raw as { date?: string }).date ?? (row as { date?: string }).date
+  if (!id && !exerciseId && !exerciseName) return null
+  return { id, exerciseId, exerciseName, date }
+}
+
+function getLogFallbackKey(log: WorkoutLogIdentity): string | null {
+  if (log.exerciseId && log.date) return `${log.exerciseId}-${log.date}`
+  if (log.exerciseName && log.date) return `${log.exerciseName}-${log.date}`
+  return null
+}
+
+function replaceLogById(items: WorkoutLog[], next: WorkoutLog): WorkoutLog[] {
+  if (next.id) {
+    let updated = false
+    const mapped = items.map((item) => {
+      if (item.id === next.id) {
+        updated = true
+        return { ...item, ...next }
+      }
+      return item
+    })
+    if (updated) return mapped
+  }
+  const fallbackKey = getLogFallbackKey(next)
+  if (fallbackKey) {
+    let updated = false
+    const mapped = items.map((item) => {
+      if (getLogFallbackKey(item) === fallbackKey) {
+        updated = true
+        return { ...item, ...next }
+      }
+      return item
+    })
+    if (updated) return mapped
+  }
+  return items
+}
+
+function upsertLogById(items: WorkoutLog[], next: WorkoutLog): WorkoutLog[] {
+  const replaced = replaceLogById(items, next)
+  if (replaced !== items) return replaced
+  return [...items, next]
+}
+
+function removeLogByIdentity(items: WorkoutLog[], identity: WorkoutLogIdentity | null): WorkoutLog[] {
+  if (!identity) return items
+  if (identity.id) {
+    const filtered = items.filter((item) => item.id !== identity.id)
+    if (filtered.length !== items.length) return filtered
+  }
+  const fallbackKey = getLogFallbackKey(identity)
+  if (fallbackKey) {
+    const filtered = items.filter((item) => getLogFallbackKey(item) !== fallbackKey)
+    if (filtered.length !== items.length) return filtered
+  }
+  return items
+}
+
+function applyWorkoutRealtimeChange(payload: RealtimePayload<WorkoutRow>): boolean {
+  const routines = storageService.getRoutines()
+  let next = routines
+  if (payload.eventType === "INSERT") {
+    const incoming = toRoutineValue(payload.new as Record<string, unknown>)
+    if (!incoming) return false
+    next = upsertRoutineById(routines, incoming)
+  } else if (payload.eventType === "UPDATE") {
+    const incoming = toRoutineValue(payload.new as Record<string, unknown>)
+    if (!incoming) return false
+    next = replaceRoutineById(routines, incoming)
+  } else if (payload.eventType === "DELETE") {
+    const identity = toRoutineIdentity(payload.old as Record<string, unknown>)
+    if (!identity) return false
+    next = removeRoutineByIdentity(routines, identity)
+  } else {
+    return false
+  }
+  if (next === routines) return false
+  storageService.saveRoutines(next, { syncRemote: false })
+  return true
+}
+
+function applyWorkoutLogRealtimeChange(payload: RealtimePayload<WorkoutLogRow>): boolean {
+  const logs = storageService.getLogs()
+  let next = logs
+  if (payload.eventType === "INSERT") {
+    const incoming = toWorkoutLogValue(payload.new as Record<string, unknown>)
+    if (!incoming) return false
+    next = upsertLogById(logs, incoming)
+  } else if (payload.eventType === "UPDATE") {
+    const incoming = toWorkoutLogValue(payload.new as Record<string, unknown>)
+    if (!incoming) return false
+    next = replaceLogById(logs, incoming)
+  } else if (payload.eventType === "DELETE") {
+    const identity = toWorkoutLogIdentity(payload.old as Record<string, unknown>)
+    if (!identity) return false
+    next = removeLogByIdentity(logs, identity)
+  } else {
+    return false
+  }
+  if (next === logs) return false
+  storageService.saveLogs(next, { syncRemote: false })
+  return true
 }
 
 function getDefaultRoutines(): Routine[] {
