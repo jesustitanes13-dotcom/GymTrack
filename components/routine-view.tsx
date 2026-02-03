@@ -18,28 +18,34 @@ import { getVideoThumbnail, isVideoUrl } from "@/lib/utils-video"
 interface RoutineViewProps {
   selectedDay: string | null
   onBack: () => void
+  resetTrigger: number
 }
 
-export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
+export default function RoutineView({ selectedDay, onBack, resetTrigger }: RoutineViewProps) {
   const [routine, setRoutine] = useState<Routine | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
 
   useEffect(() => {
-    if (selectedDay) {
-      const routines = storageService.getRoutines()
-      const foundRoutine = routines.find((r) => r.day === selectedDay)
-      if (foundRoutine) {
-        // Load previous weights
-        const exercisesWithPrevious = foundRoutine.exercises.map((ex) => ({
-          ...ex,
-          previousWeight: storageService.getLastWeight(ex.name),
-        }))
-        setRoutine({ ...foundRoutine, exercises: exercisesWithPrevious })
-      }
+    if (!selectedDay) {
+      setRoutine(null)
+      return
     }
-  }, [selectedDay])
+
+    const routines = storageService.getRoutines()
+    const foundRoutine = routines.find((r) => r.day === selectedDay)
+    if (foundRoutine) {
+      // Load previous weights
+      const exercisesWithPrevious = foundRoutine.exercises.map((ex) => ({
+        ...ex,
+        previousWeight: storageService.getLastWeight(ex.name),
+      }))
+      setRoutine({ ...foundRoutine, exercises: exercisesWithPrevious })
+    } else {
+      setRoutine(null)
+    }
+  }, [selectedDay, resetTrigger])
 
   const saveRoutine = () => {
     if (!routine) return

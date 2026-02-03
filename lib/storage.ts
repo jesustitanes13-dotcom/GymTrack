@@ -4,19 +4,47 @@ const STORAGE_KEYS = {
   ROUTINES: "gym_tracker_routines",
   LOGS: "gym_tracker_logs",
   VIDEOS: "gym_tracker_videos",
+  WEEKLY_RESET: "gym_tracker_weekly_reset",
 }
 
 export const storageService = {
   // Routines
   getRoutines: (): Routine[] => {
     if (typeof window === "undefined") return []
-    const data = localStorage.getItem(STORAGE_KEYS.ROUTINES)
-    return data ? JSON.parse(data) : getDefaultRoutines()
+    storageService.syncWeeklyReset()
+    return getStoredRoutines()
   },
 
   saveRoutines: (routines: Routine[]) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(routines))
+  },
+
+  syncWeeklyReset: (): boolean => {
+    if (typeof window === "undefined") return false
+    const now = new Date()
+    const resetAt = getWeekResetTime(now)
+    const lastResetRaw = localStorage.getItem(STORAGE_KEYS.WEEKLY_RESET)
+    const lastReset = lastResetRaw ? new Date(lastResetRaw) : null
+    const lastResetTime =
+      lastReset && !Number.isNaN(lastReset.getTime()) ? lastReset.getTime() : null
+
+    if (lastResetTime === null || lastResetTime < resetAt.getTime()) {
+      const routines = getStoredRoutines()
+      const resetRoutines = routines.map((routine) => ({
+        ...routine,
+        exercises: routine.exercises.map((exercise) => ({
+          ...exercise,
+          completed: false,
+          currentWeight: 0,
+        })),
+      }))
+
+      localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(resetRoutines))
+      localStorage.setItem(STORAGE_KEYS.WEEKLY_RESET, resetAt.toISOString())
+      return true
+    }
+    return false
   },
 
   // Workout Logs
@@ -67,6 +95,26 @@ export const storageService = {
     const videos = storageService.getVideos().filter((v) => v.id !== id)
     storageService.saveVideos(videos)
   },
+}
+
+function getStoredRoutines(): Routine[] {
+  const data = localStorage.getItem(STORAGE_KEYS.ROUTINES)
+  return data ? JSON.parse(data) : getDefaultRoutines()
+}
+
+function getWeekResetTime(now: Date): Date {
+  const resetAt = new Date(now)
+  resetAt.setHours(1, 0, 0, 0)
+
+  const day = resetAt.getDay()
+  const daysSinceMonday = (day + 6) % 7
+  resetAt.setDate(resetAt.getDate() - daysSinceMonday)
+
+  if (now < resetAt) {
+    resetAt.setDate(resetAt.getDate() - 7)
+  }
+
+  return resetAt
 }
 
 function getDefaultRoutines(): Routine[] {

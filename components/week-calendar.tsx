@@ -12,9 +12,10 @@ const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 
 interface WeekCalendarProps {
   onDaySelect: (day: string) => void
+  resetTrigger: number
 }
 
-export default function WeekCalendar({ onDaySelect }: WeekCalendarProps) {
+export default function WeekCalendar({ onDaySelect, resetTrigger }: WeekCalendarProps) {
   const [routines, setRoutines] = useState<Routine[]>([])
   const [currentDay, setCurrentDay] = useState("")
 
@@ -23,7 +24,7 @@ export default function WeekCalendar({ onDaySelect }: WeekCalendarProps) {
     const today = new Date().toLocaleDateString("es-ES", { weekday: "long" })
     const capitalizedDay = today.charAt(0).toUpperCase() + today.slice(1)
     setCurrentDay(capitalizedDay)
-  }, [])
+  }, [resetTrigger])
 
   const getDayCompletion = (day: string) => {
     const routine = routines.find((r) => r.day === day)

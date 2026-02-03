@@ -1,16 +1,31 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Calendar, TrendingUp, Video, Dumbbell } from "lucide-react"
 import WeekCalendar from "./week-calendar"
 import RoutineView from "./routine-view"
 import ProgressView from "./progress-view"
 import VideosView from "./videos-view"
+import { storageService } from "@/lib/storage"
 
 export default function GymTracker() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("calendar")
+  const [resetTrigger, setResetTrigger] = useState(0)
+
+  useEffect(() => {
+    const checkWeeklyReset = () => {
+      const didReset = storageService.syncWeeklyReset()
+      if (didReset) {
+        setResetTrigger((value) => value + 1)
+      }
+    }
+
+    checkWeeklyReset()
+    const interval = setInterval(checkWeeklyReset, 60 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   const handleDaySelect = (day: string) => {
     setSelectedDay(day)
@@ -76,11 +91,11 @@ export default function GymTracker() {
 
         <div className="container max-w-7xl mx-auto px-4 py-6">
           <TabsContent value="calendar" className="mt-0">
-            <WeekCalendar onDaySelect={handleDaySelect} />
+            <WeekCalendar onDaySelect={handleDaySelect} resetTrigger={resetTrigger} />
           </TabsContent>
 
           <TabsContent value="routine" className="mt-0">
-            <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} />
+            <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} resetTrigger={resetTrigger} />
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0">
