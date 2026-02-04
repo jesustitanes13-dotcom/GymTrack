@@ -7,24 +7,30 @@ import WeekCalendar from "./week-calendar"
 import RoutineView from "./routine-view"
 import ProgressView from "./progress-view"
 import VideosView from "./videos-view"
+import SyncDialog from "./sync-dialog"
 import { storageService } from "@/lib/storage"
 
 export default function GymTracker() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("calendar")
-  const [resetTrigger, setResetTrigger] = useState(0)
+  const [dataVersion, setDataVersion] = useState(0)
 
   useEffect(() => {
     const checkWeeklyReset = () => {
-      const didReset = storageService.syncWeeklyReset()
-      if (didReset) {
-        setResetTrigger((value) => value + 1)
-      }
+      storageService.syncWeeklyReset()
     }
 
+    storageService.bootstrap()
     checkWeeklyReset()
     const interval = setInterval(checkWeeklyReset, 60 * 1000)
     return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    const unsubscribe = storageService.subscribe(() => {
+      setDataVersion((value) => value + 1)
+    })
+    return () => unsubscribe()
   }, [])
 
   const handleDaySelect = (day: string) => {
@@ -40,7 +46,7 @@ export default function GymTracker() {
   return (
     <div className="min-h-screen bg-background">
       <header className="sticky top-0 z-50 bg-card border-b border-border backdrop-blur-sm bg-card/95">
-        <div className="container max-w-7xl mx-auto px-4 py-4 flex items-center gap-3">
+        <div className="container max-w-7xl mx-auto px-4 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <div className="p-2 bg-primary rounded-lg">
               <Dumbbell className="h-6 w-6 text-primary-foreground" />
@@ -50,6 +56,7 @@ export default function GymTracker() {
               <p className="text-xs text-muted-foreground">Tu progreso, tu éxito</p>
             </div>
           </div>
+          <SyncDialog />
         </div>
       </header>
 
@@ -91,19 +98,19 @@ export default function GymTracker() {
 
         <div className="container max-w-7xl mx-auto px-4 py-6">
           <TabsContent value="calendar" className="mt-0">
-            <WeekCalendar onDaySelect={handleDaySelect} resetTrigger={resetTrigger} />
+            <WeekCalendar onDaySelect={handleDaySelect} dataVersion={dataVersion} />
           </TabsContent>
 
           <TabsContent value="routine" className="mt-0">
-            <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} resetTrigger={resetTrigger} />
+            <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} dataVersion={dataVersion} />
           </TabsContent>
 
           <TabsContent value="progress" className="mt-0">
-            <ProgressView />
+            <ProgressView dataVersion={dataVersion} />
           </TabsContent>
 
           <TabsContent value="videos" className="mt-0">
-            <VideosView />
+            <VideosView dataVersion={dataVersion} />
           </TabsContent>
         </div>
       </Tabs>

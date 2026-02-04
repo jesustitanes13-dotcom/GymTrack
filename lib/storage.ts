@@ -1,11 +1,22 @@
-import type { Routine, WorkoutLog, Video } from "./types"
+import type { Routine, WorkoutLog, Video, StorageSnapshot } from "./types"
 
 const STORAGE_KEYS = {
   ROUTINES: "gym_tracker_routines",
   LOGS: "gym_tracker_logs",
   VIDEOS: "gym_tracker_videos",
   WEEKLY_RESET: "gym_tracker_weekly_reset",
+  METADATA: "gym_tracker_metadata",
 }
+
+type StorageChangeSource = "local" | "remote" | "reset"
+type StorageChange = { snapshot: StorageSnapshot; source: StorageChangeSource }
+type StorageListener = (change: StorageChange) => void
+
+type StorageMetadata = {
+  updatedAt?: string
+}
+
+const listeners = new Set<StorageListener>()
 
 export const storageService = {
   // Routines
@@ -18,6 +29,8 @@ export const storageService = {
   saveRoutines: (routines: Routine[]) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(routines))
+    touchMetadata()
+    notifyListeners("local")
   },
 
   syncWeeklyReset: (): boolean => {
@@ -42,6 +55,8 @@ export const storageService = {
 
       localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(resetRoutines))
       localStorage.setItem(STORAGE_KEYS.WEEKLY_RESET, resetAt.toISOString())
+      touchMetadata()
+      notifyListeners("reset")
       return true
     }
     return false
@@ -50,13 +65,14 @@ export const storageService = {
   // Workout Logs
   getLogs: (): WorkoutLog[] => {
     if (typeof window === "undefined") return []
-    const data = localStorage.getItem(STORAGE_KEYS.LOGS)
-    return data ? JSON.parse(data) : []
+    return getStoredLogs()
   },
 
   saveLogs: (logs: WorkoutLog[]) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs))
+    touchMetadata()
+    notifyListeners("local")
   },
 
   addLog: (log: WorkoutLog) => {
@@ -76,13 +92,14 @@ export const storageService = {
   // Videos
   getVideos: (): Video[] => {
     if (typeof window === "undefined") return []
-    const data = localStorage.getItem(STORAGE_KEYS.VIDEOS)
-    return data ? JSON.parse(data) : []
+    return getStoredVideos()
   },
 
   saveVideos: (videos: Video[]) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(videos))
+    touchMetadata()
+    notifyListeners("local")
   },
 
   addVideo: (video: Video) => {
@@ -95,11 +112,131 @@ export const storageService = {
     const videos = storageService.getVideos().filter((v) => v.id !== id)
     storageService.saveVideos(videos)
   },
+
+  // Sync helpers
+  getSnapshot: (): StorageSnapshot => {
+    if (typeof window === "undefined") {
+      return {
+        routines: [],
+        logs: [],
+        videos: [],
+        weeklyResetAt: null,
+        updatedAt: null,
+      }
+    }
+
+    return {
+      routines: getStoredRoutines(),
+      logs: getStoredLogs(),
+      videos: getStoredVideos(),
+      weeklyResetAt: getWeeklyResetAt(),
+      updatedAt: getUpdatedAt(),
+    }
+  },
+
+  applySnapshot: (snapshot: StorageSnapshot, source: StorageChangeSource = "remote") => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(snapshot.routines))
+    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(snapshot.logs))
+    localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(snapshot.videos))
+    if (snapshot.weeklyResetAt) {
+      localStorage.setItem(STORAGE_KEYS.WEEKLY_RESET, snapshot.weeklyResetAt)
+    } else {
+      localStorage.removeItem(STORAGE_KEYS.WEEKLY_RESET)
+    }
+    const metadata = snapshot.updatedAt ? { updatedAt: snapshot.updatedAt } : {}
+    setMetadata(metadata, { notify: false })
+    notifyListeners(source)
+  },
+
+  subscribe: (listener: StorageListener) => {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
+  },
+
+  bootstrap: () => {
+    if (typeof window === "undefined") return
+    const updatedAt = getUpdatedAt()
+    if (updatedAt) return
+    const snapshot = storageService.getSnapshot()
+    if (!storageService.isDefaultSnapshot(snapshot)) {
+      touchMetadata({ notify: false })
+    }
+  },
+
+  ensureUpdatedAt: (): string | null => {
+    if (typeof window === "undefined") return null
+    const updatedAt = getUpdatedAt()
+    if (updatedAt) return updatedAt
+    return touchMetadata({ notify: false })
+  },
+
+  isDefaultSnapshot: (snapshot: StorageSnapshot): boolean => {
+    if (snapshot.logs.length > 0 || snapshot.videos.length > 0 || snapshot.weeklyResetAt) {
+      return false
+    }
+    return areRoutinesEqual(snapshot.routines, getDefaultRoutines())
+  },
+}
+
+function getStoredLogs(): WorkoutLog[] {
+  const data = localStorage.getItem(STORAGE_KEYS.LOGS)
+  return data ? JSON.parse(data) : []
+}
+
+function getStoredVideos(): Video[] {
+  const data = localStorage.getItem(STORAGE_KEYS.VIDEOS)
+  return data ? JSON.parse(data) : []
+}
+
+function getWeeklyResetAt(): string | null {
+  const raw = localStorage.getItem(STORAGE_KEYS.WEEKLY_RESET)
+  if (!raw) return null
+  const parsed = new Date(raw)
+  return Number.isNaN(parsed.getTime()) ? null : raw
+}
+
+function getMetadata(): StorageMetadata {
+  const raw = localStorage.getItem(STORAGE_KEYS.METADATA)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw)
+    return typeof parsed === "object" && parsed ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function setMetadata(metadata: StorageMetadata, options?: { notify?: boolean; source?: StorageChangeSource }) {
+  localStorage.setItem(STORAGE_KEYS.METADATA, JSON.stringify(metadata))
+  if (options?.notify) {
+    notifyListeners(options.source ?? "local")
+  }
+}
+
+function getUpdatedAt(): string | null {
+  const metadata = getMetadata()
+  return metadata.updatedAt ?? null
+}
+
+function touchMetadata(options?: { notify?: boolean; source?: StorageChangeSource }): string {
+  const updatedAt = new Date().toISOString()
+  setMetadata({ updatedAt }, options)
+  return updatedAt
+}
+
+function notifyListeners(source: StorageChangeSource) {
+  const snapshot = storageService.getSnapshot()
+  listeners.forEach((listener) => listener({ snapshot, source }))
 }
 
 function getStoredRoutines(): Routine[] {
   const data = localStorage.getItem(STORAGE_KEYS.ROUTINES)
   return data ? JSON.parse(data) : getDefaultRoutines()
+}
+
+function areRoutinesEqual(a: Routine[], b: Routine[]) {
+  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 function getWeekResetTime(now: Date): Date {

@@ -28,3 +28,11 @@ export interface Video {
   thumbnail?: string
   uploadedAt: string
 }
+
+export interface StorageSnapshot {
+  routines: Routine[]
+  logs: WorkoutLog[]
+  videos: Video[]
+  weeklyResetAt: string | null
+  updatedAt: string | null
+}

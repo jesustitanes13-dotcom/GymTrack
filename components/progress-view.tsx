@@ -9,7 +9,11 @@ import { Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContain
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 
-export default function ProgressView() {
+interface ProgressViewProps {
+  dataVersion: number
+}
+
+export default function ProgressView({ dataVersion }: ProgressViewProps) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [selectedExercise, setSelectedExercise] = useState<string>("")
   const [exercises, setExercises] = useState<string[]>([])
@@ -21,10 +25,11 @@ export default function ProgressView() {
     // Get unique exercise names
     const uniqueExercises = Array.from(new Set(allLogs.map((log) => log.exerciseName)))
     setExercises(uniqueExercises)
-    if (uniqueExercises.length > 0 && !selectedExercise) {
-      setSelectedExercise(uniqueExercises[0])
-    }
-  }, [])
+    setSelectedExercise((current) => {
+      if (current && uniqueExercises.includes(current)) return current
+      return uniqueExercises[0] ?? ""
+    })
+  }, [dataVersion])
 
   const getChartData = () => {
     if (!selectedExercise) return []

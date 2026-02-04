@@ -18,10 +18,10 @@ import { getVideoThumbnail, isVideoUrl } from "@/lib/utils-video"
 interface RoutineViewProps {
   selectedDay: string | null
   onBack: () => void
-  resetTrigger: number
+  dataVersion: number
 }
 
-export default function RoutineView({ selectedDay, onBack, resetTrigger }: RoutineViewProps) {
+export default function RoutineView({ selectedDay, onBack, dataVersion }: RoutineViewProps) {
   const [routine, setRoutine] = useState<Routine | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
@@ -45,7 +45,7 @@ export default function RoutineView({ selectedDay, onBack, resetTrigger }: Routi
     } else {
       setRoutine(null)
     }
-  }, [selectedDay, resetTrigger])
+  }, [selectedDay, dataVersion])
 
   const saveRoutine = () => {
     if (!routine) return
