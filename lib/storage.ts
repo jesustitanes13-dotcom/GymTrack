@@ -14,6 +14,17 @@ const STORAGE_KEYS = {
 }
 
 const USER_ID_KEY = "gym_tracker_user_id"
+const SYNC_PREFIX = "gym_tracker_"
+const SYNC_STATE_KEY = "gym_tracker_sync_state"
+const SYNC_MANAGED_KEYS = new Set<string>([
+  STORAGE_KEYS.ROUTINES,
+  STORAGE_KEYS.LOGS,
+  STORAGE_KEYS.VIDEOS,
+  STORAGE_KEYS.PHOTOS,
+  STORAGE_KEYS.REMINDERS,
+  STORAGE_KEYS.REST_SETTINGS,
+])
+const SYNC_EXCLUDED_KEYS = new Set<string>([USER_ID_KEY, SYNC_STATE_KEY])
 let currentUserId: string | null = null
 
 const DEFAULT_REST_SETTINGS: RestSettings = {
@@ -42,6 +53,7 @@ export const storageService = {
   getUserId: () => getCachedUserId(),
 
   fetchAll: async () => {
+    await storageService.syncPrefixedStorage()
     const results = await Promise.allSettled([
       storageService.fetchRoutines(),
       storageService.fetchLogs(),
@@ -112,6 +124,14 @@ export const storageService = {
       return true
     }
     return false
+  },
+
+  syncPrefixedStorage: async () => {
+    if (typeof window === "undefined") return
+    if (!supabase) return
+    const userId = await resolveUserId()
+    if (!userId) return
+    await syncPrefixedKeys(userId)
   },
 
   fetchRoutines: async (): Promise<Routine[]> => {
@@ -323,6 +343,160 @@ async function fetchFromSupabase<T>(key: string): Promise<T | null> {
   const { data, error } = await supabase.from("app_data").select("value").eq("user_id", userId).eq("key", key).maybeSingle()
   if (error || !data?.value) return null
   return data.value as T
+}
+
+type SyncStateEntry = { hash: string; updatedAt: string }
+type SyncState = Record<string, SyncStateEntry>
+
+async function syncPrefixedKeys(userId: string) {
+  if (!supabase) return
+  const localKeys = getLocalPrefixedKeys()
+  const localValues = new Map<string, string | null>()
+  localKeys.forEach((key) => {
+    localValues.set(key, localStorage.getItem(key))
+  })
+
+  const { data, error } = await supabase
+    .from("app_data")
+    .select("key, value, updated_at")
+    .eq("user_id", userId)
+    .like("key", `${SYNC_PREFIX}%`)
+
+  if (error || !data) return
+
+  const syncState = getSyncState()
+  const remoteMap = new Map<string, { value: unknown; updatedAt: string | null }>()
+  data.forEach((row) => {
+    remoteMap.set(row.key, { value: row.value, updatedAt: row.updated_at })
+  })
+
+  const allKeys = new Set<string>([...localKeys, ...remoteMap.keys()])
+
+  for (const key of allKeys) {
+    if (SYNC_EXCLUDED_KEYS.has(key)) continue
+
+    const localValue = localValues.get(key) ?? null
+    const remoteEntry = remoteMap.get(key)
+    const remoteUpdatedAt = remoteEntry?.updatedAt ?? null
+    const stateEntry = syncState[key]
+
+    if (!remoteEntry) {
+      if (localValue !== null) {
+        await pushPrefixedKey(userId, key, localValue, syncState)
+      }
+      continue
+    }
+
+    const localIsMeaningful = isMeaningfulValue(localValue)
+
+    if (!stateEntry) {
+      if (localIsMeaningful) {
+        await pushPrefixedKey(userId, key, localValue, syncState)
+      } else {
+        applyRemoteValue(key, remoteEntry.value, remoteUpdatedAt, syncState)
+      }
+      continue
+    }
+
+    const localHash = hashValue(localValue ?? "")
+    if (localHash !== stateEntry.hash) {
+      await pushPrefixedKey(userId, key, localValue, syncState)
+      continue
+    }
+
+    const remoteTime = remoteUpdatedAt ? new Date(remoteUpdatedAt).getTime() : 0
+    const stateTime = new Date(stateEntry.updatedAt).getTime()
+    if (remoteTime > stateTime) {
+      applyRemoteValue(key, remoteEntry.value, remoteUpdatedAt, syncState)
+    }
+  }
+
+  saveSyncState(syncState)
+}
+
+async function pushPrefixedKey(userId: string, key: string, value: string | null, syncState: SyncState) {
+  if (!supabase) return
+  if (value === null) return
+  const now = new Date().toISOString()
+  const parsedValue = shouldParseValue(key) ? safeParseJson(value) ?? value : value
+  const { error } = await supabase.from("app_data").upsert(
+    {
+      user_id: userId,
+      key,
+      value: parsedValue,
+      updated_at: now,
+    },
+    { onConflict: "user_id,key" },
+  )
+  if (error) return
+  syncState[key] = { hash: hashValue(value), updatedAt: now }
+}
+
+function applyRemoteValue(
+  key: string,
+  value: unknown,
+  updatedAt: string | null,
+  syncState: SyncState,
+) {
+  if (value === null || value === undefined) return
+  const serialized = typeof value === "string" ? value : JSON.stringify(value)
+  localStorage.setItem(key, serialized)
+  if (updatedAt) {
+    syncState[key] = { hash: hashValue(serialized), updatedAt }
+  }
+}
+
+function getLocalPrefixedKeys(): string[] {
+  const keys: string[] = []
+  for (let index = 0; index < localStorage.length; index += 1) {
+    const key = localStorage.key(index)
+    if (!key) continue
+    if (!key.startsWith(SYNC_PREFIX)) continue
+    keys.push(key)
+  }
+  return keys
+}
+
+function getSyncState(): SyncState {
+  const raw = localStorage.getItem(SYNC_STATE_KEY)
+  if (!raw) return {}
+  try {
+    const parsed = JSON.parse(raw) as SyncState
+    return parsed && typeof parsed === "object" ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+function saveSyncState(state: SyncState) {
+  localStorage.setItem(SYNC_STATE_KEY, JSON.stringify(state))
+}
+
+function shouldParseValue(key: string) {
+  return SYNC_MANAGED_KEYS.has(key)
+}
+
+function safeParseJson(value: string) {
+  try {
+    return JSON.parse(value)
+  } catch {
+    return null
+  }
+}
+
+function isMeaningfulValue(value: string | null) {
+  if (value === null) return false
+  const trimmed = value.trim()
+  if (!trimmed) return false
+  return trimmed !== "[]" && trimmed !== "{}"
+}
+
+function hashValue(value: string) {
+  let hash = 5381
+  for (let index = 0; index < value.length; index += 1) {
+    hash = (hash * 33) ^ value.charCodeAt(index)
+  }
+  return String(hash >>> 0)
 }
 
 function getCachedUserId() {

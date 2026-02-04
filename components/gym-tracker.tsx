@@ -66,6 +66,14 @@ export default function GymTracker() {
   }, [userId])
 
   useEffect(() => {
+    if (!userId) return
+    const interval = setInterval(() => {
+      void storageService.syncPrefixedStorage()
+    }, 60 * 1000)
+    return () => clearInterval(interval)
+  }, [userId])
+
+  useEffect(() => {
     setRestSettings(storageService.getRestSettings())
   }, [syncVersion])
 
