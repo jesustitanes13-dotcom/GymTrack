@@ -1,8 +1,24 @@
+export const MUSCLE_GROUPS = [
+  "Piernas",
+  "Glúteos",
+  "Pecho",
+  "Espalda",
+  "Hombros",
+  "Brazos",
+  "Core",
+  "Cardio",
+  "Full Body",
+  "Otro",
+] as const
+
+export type MuscleGroup = (typeof MUSCLE_GROUPS)[number]
+
 export interface Exercise {
   id: string
   name: string
   setsReps: string
   videoUrl: string
+  muscleGroup: MuscleGroup
   currentWeight: number
   previousWeight?: number
   completed: boolean
@@ -19,6 +35,10 @@ export interface WorkoutLog {
   date: string
   weight: number
   setsReps: string
+  muscleGroup?: MuscleGroup
+  sets?: number
+  reps?: number
+  volume?: number
 }
 
 export interface Video {
@@ -29,10 +49,30 @@ export interface Video {
   uploadedAt: string
 }
 
-export interface StorageSnapshot {
-  routines: Routine[]
-  logs: WorkoutLog[]
-  videos: Video[]
-  weeklyResetAt: string | null
-  updatedAt: string | null
+export interface ProgressPhoto {
+  id: string
+  month: string
+  frontUrl: string
+  sideUrl: string
+  createdAt: string
+}
+
+export interface RestSettings {
+  durationSeconds: number
+  soundEnabled: boolean
+}
+
+export interface ReminderSettings {
+  enabled: boolean
+  time: string
+  days: string[]
+  notifyInApp: boolean
+  emailEnabled: boolean
+  email: string
+}
+
+export interface AiProgressionResult {
+  analysis: string
+  nextMonthPrediction: number | null
+  confidence: "baja" | "media" | "alta"
 }

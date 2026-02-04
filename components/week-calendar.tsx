@@ -12,19 +12,20 @@ const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "
 
 interface WeekCalendarProps {
   onDaySelect: (day: string) => void
-  dataVersion: number
+  syncVersion?: number
 }
 
-export default function WeekCalendar({ onDaySelect, dataVersion }: WeekCalendarProps) {
+export default function WeekCalendar({ onDaySelect, syncVersion = 0 }: WeekCalendarProps) {
   const [routines, setRoutines] = useState<Routine[]>([])
   const [currentDay, setCurrentDay] = useState("")
 
   useEffect(() => {
     setRoutines(storageService.getRoutines())
+    void storageService.fetchRoutines().then(setRoutines)
     const today = new Date().toLocaleDateString("es-ES", { weekday: "long" })
     const capitalizedDay = today.charAt(0).toUpperCase() + today.slice(1)
     setCurrentDay(capitalizedDay)
-  }, [dataVersion])
+  }, [syncVersion])
 
   const getDayCompletion = (day: string) => {
     const routine = routines.find((r) => r.day === day)

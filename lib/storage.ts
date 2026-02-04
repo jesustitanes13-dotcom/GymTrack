@@ -1,36 +1,90 @@
-import type { Routine, WorkoutLog, Video, StorageSnapshot } from "./types"
+import type { MuscleGroup, ProgressPhoto, ReminderSettings, RestSettings, Routine, Video, WorkoutLog } from "./types"
+import { calculateVolume, normalizeLogs, parseSetsReps } from "./workout-utils"
+import { supabase } from "./supabase-client"
 
 const STORAGE_KEYS = {
   ROUTINES: "gym_tracker_routines",
   LOGS: "gym_tracker_logs",
   VIDEOS: "gym_tracker_videos",
+  PHOTOS: "gym_tracker_photos",
+  REMINDERS: "gym_tracker_reminders",
+  REST_SETTINGS: "gym_tracker_rest_settings",
+  REMINDER_LAST_SENT: "gym_tracker_reminder_last_sent",
   WEEKLY_RESET: "gym_tracker_weekly_reset",
-  METADATA: "gym_tracker_metadata",
 }
 
-type StorageChangeSource = "local" | "remote" | "reset"
-type StorageChange = { snapshot: StorageSnapshot; source: StorageChangeSource }
-type StorageListener = (change: StorageChange) => void
+const USER_ID_KEY = "gym_tracker_user_id"
+let currentUserId: string | null = null
 
-type StorageMetadata = {
-  updatedAt?: string
+const DEFAULT_REST_SETTINGS: RestSettings = {
+  durationSeconds: 90,
+  soundEnabled: true,
 }
 
-const listeners = new Set<StorageListener>()
+const DEFAULT_REMINDER_SETTINGS: ReminderSettings = {
+  enabled: false,
+  time: "18:00",
+  days: ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+  notifyInApp: true,
+  emailEnabled: false,
+  email: "",
+}
+
+const DEFAULT_MUSCLE_GROUP: MuscleGroup = "Otro"
+
+type SaveOptions = { syncRemote?: boolean }
 
 export const storageService = {
+  setUserId: (userId: string | null) => {
+    setCachedUserId(userId)
+  },
+
+  getUserId: () => getCachedUserId(),
+
+  fetchAll: async () => {
+    const results = await Promise.allSettled([
+      storageService.fetchRoutines(),
+      storageService.fetchLogs(),
+      storageService.fetchVideos(),
+      storageService.fetchPhotos(),
+      storageService.fetchReminderSettings(),
+      storageService.fetchRestSettings(),
+    ])
+    return results
+  },
+
+  subscribeToRemoteUpdates: async (onUpdate: () => void) => {
+    if (!supabase) return () => {}
+    const userId = await resolveUserId()
+    if (!userId) return () => {}
+    const channel = supabase
+      .channel(`app-data-sync-${userId}`)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "app_data", filter: `user_id=eq.${userId}` },
+        () => onUpdate(),
+      )
+      .subscribe()
+
+    return () => {
+      void supabase.removeChannel(channel)
+    }
+  },
+
   // Routines
   getRoutines: (): Routine[] => {
     if (typeof window === "undefined") return []
     storageService.syncWeeklyReset()
-    return getStoredRoutines()
+    const routines = getStoredRoutines()
+    return routines.map(normalizeRoutine)
   },
 
-  saveRoutines: (routines: Routine[]) => {
+  saveRoutines: (routines: Routine[], options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(routines))
-    touchMetadata()
-    notifyListeners("local")
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.ROUTINES, routines)
+    }
   },
 
   syncWeeklyReset: (): boolean => {
@@ -53,32 +107,58 @@ export const storageService = {
         })),
       }))
 
-      localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(resetRoutines))
+      storageService.saveRoutines(resetRoutines)
       localStorage.setItem(STORAGE_KEYS.WEEKLY_RESET, resetAt.toISOString())
-      touchMetadata()
-      notifyListeners("reset")
       return true
     }
     return false
   },
 
+  fetchRoutines: async (): Promise<Routine[]> => {
+    const remote = await fetchFromSupabase<Routine[]>(STORAGE_KEYS.ROUTINES)
+    if (remote) {
+      storageService.saveRoutines(remote, { syncRemote: false })
+      return remote.map(normalizeRoutine)
+    }
+    return storageService.getRoutines()
+  },
+
   // Workout Logs
   getLogs: (): WorkoutLog[] => {
     if (typeof window === "undefined") return []
-    return getStoredLogs()
+    const data = localStorage.getItem(STORAGE_KEYS.LOGS)
+    const logs = data ? (JSON.parse(data) as WorkoutLog[]) : []
+    return normalizeLogs(logs)
   },
 
-  saveLogs: (logs: WorkoutLog[]) => {
+  saveLogs: (logs: WorkoutLog[], options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(logs))
-    touchMetadata()
-    notifyListeners("local")
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.LOGS, logs)
+    }
   },
 
   addLog: (log: WorkoutLog) => {
     const logs = storageService.getLogs()
-    logs.push(log)
+    const { sets, reps } = parseSetsReps(log.setsReps)
+    const volume = calculateVolume(log.weight, log.setsReps)
+    logs.push({
+      ...log,
+      sets: log.sets ?? sets,
+      reps: log.reps ?? reps,
+      volume: log.volume ?? volume,
+    })
     storageService.saveLogs(logs)
+  },
+
+  fetchLogs: async (): Promise<WorkoutLog[]> => {
+    const remote = await fetchFromSupabase<WorkoutLog[]>(STORAGE_KEYS.LOGS)
+    if (remote) {
+      storageService.saveLogs(remote, { syncRemote: false })
+      return normalizeLogs(remote)
+    }
+    return storageService.getLogs()
   },
 
   getLastWeight: (exerciseName: string): number | undefined => {
@@ -92,14 +172,16 @@ export const storageService = {
   // Videos
   getVideos: (): Video[] => {
     if (typeof window === "undefined") return []
-    return getStoredVideos()
+    const data = localStorage.getItem(STORAGE_KEYS.VIDEOS)
+    return data ? JSON.parse(data) : []
   },
 
-  saveVideos: (videos: Video[]) => {
+  saveVideos: (videos: Video[], options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(videos))
-    touchMetadata()
-    notifyListeners("local")
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.VIDEOS, videos)
+    }
   },
 
   addVideo: (video: Video) => {
@@ -113,130 +195,182 @@ export const storageService = {
     storageService.saveVideos(videos)
   },
 
-  // Sync helpers
-  getSnapshot: (): StorageSnapshot => {
-    if (typeof window === "undefined") {
-      return {
-        routines: [],
-        logs: [],
-        videos: [],
-        weeklyResetAt: null,
-        updatedAt: null,
-      }
+  fetchVideos: async (): Promise<Video[]> => {
+    const remote = await fetchFromSupabase<Video[]>(STORAGE_KEYS.VIDEOS)
+    if (remote) {
+      storageService.saveVideos(remote, { syncRemote: false })
+      return remote
     }
+    return storageService.getVideos()
+  },
 
-    return {
-      routines: getStoredRoutines(),
-      logs: getStoredLogs(),
-      videos: getStoredVideos(),
-      weeklyResetAt: getWeeklyResetAt(),
-      updatedAt: getUpdatedAt(),
+  // Photos
+  getPhotos: (): ProgressPhoto[] => {
+    if (typeof window === "undefined") return []
+    const data = localStorage.getItem(STORAGE_KEYS.PHOTOS)
+    return data ? JSON.parse(data) : []
+  },
+
+  savePhotos: (photos: ProgressPhoto[], options: SaveOptions = {}) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.PHOTOS, JSON.stringify(photos))
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.PHOTOS, photos)
     }
   },
 
-  applySnapshot: (snapshot: StorageSnapshot, source: StorageChangeSource = "remote") => {
-    if (typeof window === "undefined") return
-    localStorage.setItem(STORAGE_KEYS.ROUTINES, JSON.stringify(snapshot.routines))
-    localStorage.setItem(STORAGE_KEYS.LOGS, JSON.stringify(snapshot.logs))
-    localStorage.setItem(STORAGE_KEYS.VIDEOS, JSON.stringify(snapshot.videos))
-    if (snapshot.weeklyResetAt) {
-      localStorage.setItem(STORAGE_KEYS.WEEKLY_RESET, snapshot.weeklyResetAt)
+  upsertPhoto: (photo: ProgressPhoto) => {
+    const photos = storageService.getPhotos()
+    const index = photos.findIndex((entry) => entry.month === photo.month)
+    if (index >= 0) {
+      photos[index] = { ...photos[index], ...photo }
     } else {
-      localStorage.removeItem(STORAGE_KEYS.WEEKLY_RESET)
+      photos.push(photo)
     }
-    const metadata = snapshot.updatedAt ? { updatedAt: snapshot.updatedAt } : {}
-    setMetadata(metadata, { notify: false })
-    notifyListeners(source)
+    storageService.savePhotos(photos)
   },
 
-  subscribe: (listener: StorageListener) => {
-    listeners.add(listener)
-    return () => listeners.delete(listener)
+  fetchPhotos: async (): Promise<ProgressPhoto[]> => {
+    const remote = await fetchFromSupabase<ProgressPhoto[]>(STORAGE_KEYS.PHOTOS)
+    if (remote) {
+      storageService.savePhotos(remote, { syncRemote: false })
+      return remote
+    }
+    return storageService.getPhotos()
   },
 
-  bootstrap: () => {
+  // Reminders
+  getReminderSettings: (): ReminderSettings => {
+    if (typeof window === "undefined") return DEFAULT_REMINDER_SETTINGS
+    const data = localStorage.getItem(STORAGE_KEYS.REMINDERS)
+    return data ? { ...DEFAULT_REMINDER_SETTINGS, ...JSON.parse(data) } : DEFAULT_REMINDER_SETTINGS
+  },
+
+  saveReminderSettings: (settings: ReminderSettings, options: SaveOptions = {}) => {
     if (typeof window === "undefined") return
-    const updatedAt = getUpdatedAt()
-    if (updatedAt) return
-    const snapshot = storageService.getSnapshot()
-    if (!storageService.isDefaultSnapshot(snapshot)) {
-      touchMetadata({ notify: false })
+    localStorage.setItem(STORAGE_KEYS.REMINDERS, JSON.stringify(settings))
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.REMINDERS, settings)
     }
   },
 
-  ensureUpdatedAt: (): string | null => {
+  fetchReminderSettings: async (): Promise<ReminderSettings> => {
+    const remote = await fetchFromSupabase<ReminderSettings>(STORAGE_KEYS.REMINDERS)
+    if (remote) {
+      const merged = { ...DEFAULT_REMINDER_SETTINGS, ...remote }
+      storageService.saveReminderSettings(merged, { syncRemote: false })
+      return merged
+    }
+    return storageService.getReminderSettings()
+  },
+
+  // Rest settings
+  getRestSettings: (): RestSettings => {
+    if (typeof window === "undefined") return DEFAULT_REST_SETTINGS
+    const data = localStorage.getItem(STORAGE_KEYS.REST_SETTINGS)
+    return data ? { ...DEFAULT_REST_SETTINGS, ...JSON.parse(data) } : DEFAULT_REST_SETTINGS
+  },
+
+  saveRestSettings: (settings: RestSettings, options: SaveOptions = {}) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.REST_SETTINGS, JSON.stringify(settings))
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.REST_SETTINGS, settings)
+    }
+  },
+
+  fetchRestSettings: async (): Promise<RestSettings> => {
+    const remote = await fetchFromSupabase<RestSettings>(STORAGE_KEYS.REST_SETTINGS)
+    if (remote) {
+      const merged = { ...DEFAULT_REST_SETTINGS, ...remote }
+      storageService.saveRestSettings(merged, { syncRemote: false })
+      return merged
+    }
+    return storageService.getRestSettings()
+  },
+
+  getReminderLastSent: (): string | null => {
     if (typeof window === "undefined") return null
-    const updatedAt = getUpdatedAt()
-    if (updatedAt) return updatedAt
-    return touchMetadata({ notify: false })
+    return localStorage.getItem(STORAGE_KEYS.REMINDER_LAST_SENT)
   },
 
-  isDefaultSnapshot: (snapshot: StorageSnapshot): boolean => {
-    if (snapshot.logs.length > 0 || snapshot.videos.length > 0 || snapshot.weeklyResetAt) {
-      return false
-    }
-    return areRoutinesEqual(snapshot.routines, getDefaultRoutines())
+  setReminderLastSent: (dateKey: string) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.REMINDER_LAST_SENT, dateKey)
   },
 }
 
-function getStoredLogs(): WorkoutLog[] {
-  const data = localStorage.getItem(STORAGE_KEYS.LOGS)
-  return data ? JSON.parse(data) : []
+// Requiere tabla `app_data` con columnas: user_id (uuid), key (text), value (jsonb), updated_at (timestamptz).
+async function syncToSupabase<T>(key: string, value: T) {
+  if (!supabase) return
+  const userId = await resolveUserId()
+  if (!userId) return
+  await supabase.from("app_data").upsert(
+    {
+      user_id: userId,
+      key,
+      value,
+      updated_at: new Date().toISOString(),
+    },
+    { onConflict: "user_id,key" },
+  )
 }
 
-function getStoredVideos(): Video[] {
-  const data = localStorage.getItem(STORAGE_KEYS.VIDEOS)
-  return data ? JSON.parse(data) : []
+async function fetchFromSupabase<T>(key: string): Promise<T | null> {
+  if (!supabase) return null
+  const userId = await resolveUserId()
+  if (!userId) return null
+  const { data, error } = await supabase.from("app_data").select("value").eq("user_id", userId).eq("key", key).maybeSingle()
+  if (error || !data?.value) return null
+  return data.value as T
 }
 
-function getWeeklyResetAt(): string | null {
-  const raw = localStorage.getItem(STORAGE_KEYS.WEEKLY_RESET)
-  if (!raw) return null
-  const parsed = new Date(raw)
-  return Number.isNaN(parsed.getTime()) ? null : raw
+function getCachedUserId() {
+  if (currentUserId) return currentUserId
+  if (typeof window === "undefined") return null
+  const stored = localStorage.getItem(USER_ID_KEY)
+  currentUserId = stored
+  return stored
 }
 
-function getMetadata(): StorageMetadata {
-  const raw = localStorage.getItem(STORAGE_KEYS.METADATA)
-  if (!raw) return {}
-  try {
-    const parsed = JSON.parse(raw)
-    return typeof parsed === "object" && parsed ? parsed : {}
-  } catch {
-    return {}
+function setCachedUserId(userId: string | null) {
+  currentUserId = userId
+  if (typeof window === "undefined") return
+  if (userId) {
+    localStorage.setItem(USER_ID_KEY, userId)
+  } else {
+    localStorage.removeItem(USER_ID_KEY)
   }
 }
 
-function setMetadata(metadata: StorageMetadata, options?: { notify?: boolean; source?: StorageChangeSource }) {
-  localStorage.setItem(STORAGE_KEYS.METADATA, JSON.stringify(metadata))
-  if (options?.notify) {
-    notifyListeners(options.source ?? "local")
+async function resolveUserId() {
+  if (!supabase) return null
+  const cached = getCachedUserId()
+  if (cached) return cached
+  const { data } = await supabase.auth.getSession()
+  const userId = data.session?.user?.id ?? null
+  if (userId) {
+    setCachedUserId(userId)
   }
+  return userId
 }
 
-function getUpdatedAt(): string | null {
-  const metadata = getMetadata()
-  return metadata.updatedAt ?? null
-}
-
-function touchMetadata(options?: { notify?: boolean; source?: StorageChangeSource }): string {
-  const updatedAt = new Date().toISOString()
-  setMetadata({ updatedAt }, options)
-  return updatedAt
-}
-
-function notifyListeners(source: StorageChangeSource) {
-  const snapshot = storageService.getSnapshot()
-  listeners.forEach((listener) => listener({ snapshot, source }))
+function normalizeRoutine(routine: Routine): Routine {
+  return {
+    ...routine,
+    exercises: (routine.exercises || []).map((exercise) => ({
+      ...exercise,
+      videoUrl: exercise.videoUrl || "",
+      muscleGroup: exercise.muscleGroup || DEFAULT_MUSCLE_GROUP,
+      currentWeight: Number.isFinite(exercise.currentWeight) ? exercise.currentWeight : 0,
+      completed: Boolean(exercise.completed),
+    })),
+  }
 }
 
 function getStoredRoutines(): Routine[] {
   const data = localStorage.getItem(STORAGE_KEYS.ROUTINES)
-  return data ? JSON.parse(data) : getDefaultRoutines()
-}
-
-function areRoutinesEqual(a: Routine[], b: Routine[]) {
-  return JSON.stringify(a) === JSON.stringify(b)
+  return data ? (JSON.parse(data) as Routine[]) : getDefaultRoutines()
 }
 
 function getWeekResetTime(now: Date): Date {
@@ -264,34 +398,93 @@ function getDefaultRoutines(): Routine[] {
           name: "Sentadilla con barra",
           setsReps: "4x8-10",
           videoUrl: "",
+          muscleGroup: "Piernas",
           currentWeight: 0,
           completed: false,
         },
-        { id: "1-2", name: "Peso muerto rumano", setsReps: "4x8", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "1-3", name: "Zancadas", setsReps: "3x12/pierna", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "1-4", name: "Prensa de piernas", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "1-5", name: "Elevación de talones", setsReps: "4x15", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "1-2",
+          name: "Peso muerto rumano",
+          setsReps: "4x8",
+          videoUrl: "",
+          muscleGroup: "Glúteos",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "1-3",
+          name: "Zancadas",
+          setsReps: "3x12/pierna",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "1-4",
+          name: "Prensa de piernas",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "1-5",
+          name: "Elevación de talones",
+          setsReps: "4x15",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
       ],
     },
     {
       day: "Martes",
       exercises: [
-        { id: "2-1", name: "Press de banca", setsReps: "4x8-10", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "2-2", name: "Press militar", setsReps: "4x10", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "2-1",
+          name: "Press de banca",
+          setsReps: "4x8-10",
+          videoUrl: "",
+          muscleGroup: "Pecho",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "2-2",
+          name: "Press militar",
+          setsReps: "4x10",
+          videoUrl: "",
+          muscleGroup: "Hombros",
+          currentWeight: 0,
+          completed: false,
+        },
         {
           id: "2-3",
           name: "Aperturas con mancuernas",
           setsReps: "3x12",
           videoUrl: "",
+          muscleGroup: "Pecho",
           currentWeight: 0,
           completed: false,
         },
-        { id: "2-4", name: "Fondos en paralelas", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "2-4",
+          name: "Fondos en paralelas",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Pecho",
+          currentWeight: 0,
+          completed: false,
+        },
         {
           id: "2-5",
           name: "Elevaciones laterales",
           setsReps: "3x15",
           videoUrl: "",
+          muscleGroup: "Hombros",
           currentWeight: 0,
           completed: false,
         },
@@ -305,41 +498,116 @@ function getDefaultRoutines(): Routine[] {
           name: "Sentadilla búlgara",
           setsReps: "4x10/pierna",
           videoUrl: "",
+          muscleGroup: "Piernas",
           currentWeight: 0,
           completed: false,
         },
-        { id: "3-2", name: "Hip thrust", setsReps: "4x10", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "3-2",
+          name: "Hip thrust",
+          setsReps: "4x10",
+          videoUrl: "",
+          muscleGroup: "Glúteos",
+          currentWeight: 0,
+          completed: false,
+        },
         {
           id: "3-3",
           name: "Extensión de cuádriceps",
           setsReps: "3x12",
           videoUrl: "",
+          muscleGroup: "Piernas",
           currentWeight: 0,
           completed: false,
         },
-        { id: "3-4", name: "Curl femoral", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "3-5", name: "Gemelos sentado", setsReps: "4x15", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "3-4",
+          name: "Curl femoral",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "3-5",
+          name: "Gemelos sentado",
+          setsReps: "4x15",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
       ],
     },
     {
       day: "Jueves",
       exercises: [
-        { id: "4-1", name: "Dominadas", setsReps: "4x8-12", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "4-2", name: "Remo con barra", setsReps: "4x10", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "4-3", name: "Face pull", setsReps: "3x15", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "4-4", name: "Curl de bíceps", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
-        { id: "4-5", name: "Plancha", setsReps: "3x60seg", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "4-1",
+          name: "Dominadas",
+          setsReps: "4x8-12",
+          videoUrl: "",
+          muscleGroup: "Espalda",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "4-2",
+          name: "Remo con barra",
+          setsReps: "4x10",
+          videoUrl: "",
+          muscleGroup: "Espalda",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "4-3",
+          name: "Face pull",
+          setsReps: "3x15",
+          videoUrl: "",
+          muscleGroup: "Hombros",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "4-4",
+          name: "Curl de bíceps",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Brazos",
+          currentWeight: 0,
+          completed: false,
+        },
+        {
+          id: "4-5",
+          name: "Plancha",
+          setsReps: "3x60seg",
+          videoUrl: "",
+          muscleGroup: "Core",
+          currentWeight: 0,
+          completed: false,
+        },
       ],
     },
     {
       day: "Viernes",
       exercises: [
-        { id: "5-1", name: "Sentadilla goblet", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "5-1",
+          name: "Sentadilla goblet",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Piernas",
+          currentWeight: 0,
+          completed: false,
+        },
         {
           id: "5-2",
           name: "Press inclinado con mancuernas",
           setsReps: "3x10",
           videoUrl: "",
+          muscleGroup: "Pecho",
           currentWeight: 0,
           completed: false,
         },
@@ -348,10 +616,19 @@ function getDefaultRoutines(): Routine[] {
           name: "Remo con mancuerna",
           setsReps: "3x10/brazo",
           videoUrl: "",
+          muscleGroup: "Espalda",
           currentWeight: 0,
           completed: false,
         },
-        { id: "5-4", name: "Curl martillo", setsReps: "3x12", videoUrl: "", currentWeight: 0, completed: false },
+        {
+          id: "5-4",
+          name: "Curl martillo",
+          setsReps: "3x12",
+          videoUrl: "",
+          muscleGroup: "Brazos",
+          currentWeight: 0,
+          completed: false,
+        },
       ],
     },
     {

@@ -11,11 +11,7 @@ import { Plus, Trash2, Play, ExternalLink } from "lucide-react"
 import { getVideoThumbnail, isVideoUrl } from "@/lib/utils-video"
 import VideoModal from "./video-modal"
 
-interface VideosViewProps {
-  dataVersion: number
-}
-
-export default function VideosView({ dataVersion }: VideosViewProps) {
+export default function VideosView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [videos, setVideos] = useState<Video[]>([])
   const [newVideoName, setNewVideoName] = useState("")
   const [newVideoUrl, setNewVideoUrl] = useState("")
@@ -23,7 +19,8 @@ export default function VideosView({ dataVersion }: VideosViewProps) {
 
   useEffect(() => {
     setVideos(storageService.getVideos())
-  }, [dataVersion])
+    void storageService.fetchVideos().then(setVideos)
+  }, [syncVersion])
 
   const addVideo = () => {
     if (!newVideoName.trim() || !newVideoUrl.trim()) return
