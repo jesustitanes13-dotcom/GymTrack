@@ -8,8 +8,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { storageService } from "@/lib/storage"
-import type { Exercise, Routine } from "@/lib/types"
+import { MUSCLE_GROUPS, type Exercise, type Routine } from "@/lib/types"
 import { ArrowLeft, Plus, Save, Edit3, GripVertical, Trash2, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
 import VideoModal from "./video-modal"
@@ -18,9 +19,11 @@ import { getVideoThumbnail, isVideoUrl } from "@/lib/utils-video"
 interface RoutineViewProps {
   selectedDay: string | null
   onBack: () => void
+  onRestStart?: () => void
+  syncVersion?: number
 }
 
-export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
+export default function RoutineView({ selectedDay, onBack, onRestStart, syncVersion = 0 }: RoutineViewProps) {
   const [routine, setRoutine] = useState<Routine | null>(null)
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
@@ -28,23 +31,30 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
 
   useEffect(() => {
     if (selectedDay) {
-      const routines = storageService.getRoutines()
-      const foundRoutine = routines.find((r) => r.day === selectedDay)
-      if (foundRoutine) {
-        // Load previous weights
-        const exercisesWithPrevious = foundRoutine.exercises.map((ex) => ({
-          ...ex,
-          previousWeight: storageService.getLastWeight(ex.name),
-        }))
-        setRoutine({ ...foundRoutine, exercises: exercisesWithPrevious })
+      const updateRoutine = (routines: Routine[]) => {
+        const foundRoutine = routines.find((r) => r.day === selectedDay)
+        if (foundRoutine) {
+          // Load previous weights
+          const exercisesWithPrevious = foundRoutine.exercises.map((ex) => ({
+            ...ex,
+            previousWeight: storageService.getLastWeight(ex.name),
+          }))
+          setRoutine({ ...foundRoutine, exercises: exercisesWithPrevious })
+        }
       }
+      updateRoutine(storageService.getRoutines())
+      void storageService.fetchRoutines().then(updateRoutine)
     }
-  }, [selectedDay])
+  }, [selectedDay, syncVersion])
 
   const saveRoutine = () => {
     if (!routine) return
+    persistRoutine(routine)
+  }
+
+  const persistRoutine = (nextRoutine: Routine) => {
     const routines = storageService.getRoutines()
-    const updatedRoutines = routines.map((r) => (r.day === routine.day ? routine : r))
+    const updatedRoutines = routines.map((r) => (r.day === nextRoutine.day ? nextRoutine : r))
     storageService.saveRoutines(updatedRoutines)
   }
 
@@ -52,12 +62,21 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
     if (!routine) return
     const updated = [...routine.exercises]
     updated[index] = { ...updated[index], [field]: value }
-    setRoutine({ ...routine, exercises: updated })
+    const nextRoutine = { ...routine, exercises: updated }
+    setRoutine(nextRoutine)
+    return nextRoutine
   }
 
   const toggleComplete = (index: number) => {
     if (!routine) return
-    updateExercise(index, "completed", !routine.exercises[index].completed)
+    const nextValue = !routine.exercises[index].completed
+    const nextRoutine = updateExercise(index, "completed", nextValue)
+    if (nextValue) {
+      onRestStart?.()
+    }
+    if (nextRoutine) {
+      persistRoutine(nextRoutine)
+    }
   }
 
   const saveLog = (index: number) => {
@@ -70,11 +89,14 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
       date: new Date().toISOString(),
       weight: exercise.currentWeight,
       setsReps: exercise.setsReps,
+      muscleGroup: exercise.muscleGroup,
     })
 
     // Update previous weight
-    updateExercise(index, "previousWeight", exercise.currentWeight)
-    saveRoutine()
+    const nextRoutine = updateExercise(index, "previousWeight", exercise.currentWeight)
+    if (nextRoutine) {
+      persistRoutine(nextRoutine)
+    }
   }
 
   const addExercise = () => {
@@ -84,17 +106,21 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
       name: "Nuevo ejercicio",
       setsReps: "3x10",
       videoUrl: "",
+      muscleGroup: "Otro",
       currentWeight: 0,
       completed: false,
     }
-    setRoutine({ ...routine, exercises: [...routine.exercises, newExercise] })
+    const nextRoutine = { ...routine, exercises: [...routine.exercises, newExercise] }
+    setRoutine(nextRoutine)
+    persistRoutine(nextRoutine)
   }
 
   const deleteExercise = (index: number) => {
     if (!routine) return
     const updated = routine.exercises.filter((_, i) => i !== index)
-    setRoutine({ ...routine, exercises: updated })
-    saveRoutine()
+    const nextRoutine = { ...routine, exercises: updated }
+    setRoutine(nextRoutine)
+    persistRoutine(nextRoutine)
   }
 
   const handleDragStart = (index: number) => {
@@ -116,7 +142,9 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
 
   const handleDragEnd = () => {
     setDraggedIndex(null)
-    saveRoutine()
+    if (routine) {
+      persistRoutine(routine)
+    }
   }
 
   if (!selectedDay || !routine) {
@@ -212,13 +240,58 @@ export default function RoutineView({ selectedDay, onBack }: RoutineViewProps) {
                       )}
                       <td className="p-3">
                         {isEditMode ? (
-                          <Input
-                            value={exercise.name}
-                            onChange={(e) => updateExercise(index, "name", e.target.value)}
-                            className="min-w-[180px]"
-                          />
+                          <div className="space-y-2 min-w-[180px]">
+                            <Input
+                              value={exercise.name}
+                              onChange={(e) => updateExercise(index, "name", e.target.value)}
+                            />
+                            <Select
+                              value={exercise.muscleGroup}
+                              onValueChange={(value) =>
+                                updateExercise(index, "muscleGroup", value as Exercise["muscleGroup"])
+                              }
+                            >
+                              <SelectTrigger className="h-8 text-xs">
+                                <SelectValue placeholder="Grupo muscular" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                {MUSCLE_GROUPS.map((group) => (
+                                  <SelectItem key={group} value={group}>
+                                    {group}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
                         ) : (
-                          <span className="font-medium">{exercise.name}</span>
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              {exercise.videoUrl && isVideoUrl(exercise.videoUrl) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => setSelectedVideo(exercise.videoUrl)}
+                                  className="font-medium text-left hover:text-primary transition-colors"
+                                >
+                                  {exercise.name}
+                                </button>
+                              ) : (
+                                <span className="font-medium">{exercise.name}</span>
+                              )}
+                              {exercise.videoUrl && isVideoUrl(exercise.videoUrl) && (
+                                <Button
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-7 w-7"
+                                  onClick={() => setSelectedVideo(exercise.videoUrl)}
+                                >
+                                  <Play className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+                            <Badge variant="outline" className="text-xs">
+                              {exercise.muscleGroup || "Otro"}
+                            </Badge>
+                          </div>
                         )}
                       </td>
                       <td className="p-3">

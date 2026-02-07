@@ -1,79 +1,74 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Button } from "@/components/ui/button"
 import { storageService } from "@/lib/storage"
 import type { WorkoutLog } from "@/lib/types"
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { TrendingUp, TrendingDown, Minus, Sparkles } from "lucide-react"
+import { buildMonthlyStats, calculateNextMonthPrediction, getNextMonthLabel } from "@/lib/progression-utils"
 
-export default function ProgressView() {
+type AiState = {
+  analysis: string
+  nextMonthPrediction: number | null
+  confidence: "baja" | "media" | "alta"
+  source: "openai" | "fallback"
+}
+
+export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [selectedExercise, setSelectedExercise] = useState<string>("")
   const [exercises, setExercises] = useState<string[]>([])
+  const [aiResult, setAiResult] = useState<AiState | null>(null)
+  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "error">("idle")
+  const [aiError, setAiError] = useState<string | null>(null)
 
   useEffect(() => {
     const allLogs = storageService.getLogs()
     setLogs(allLogs)
+    void storageService.fetchLogs().then(setLogs)
+  }, [syncVersion])
 
-    // Get unique exercise names
-    const uniqueExercises = Array.from(new Set(allLogs.map((log) => log.exerciseName)))
+  useEffect(() => {
+    const uniqueExercises = Array.from(new Set(logs.map((log) => log.exerciseName))).filter(Boolean)
     setExercises(uniqueExercises)
-    if (uniqueExercises.length > 0 && !selectedExercise) {
+    if (uniqueExercises.length > 0 && !uniqueExercises.includes(selectedExercise)) {
       setSelectedExercise(uniqueExercises[0])
     }
-  }, [])
+    if (uniqueExercises.length === 0) {
+      setSelectedExercise("")
+    }
+  }, [logs, selectedExercise])
 
-  const getChartData = () => {
+  useEffect(() => {
+    setAiResult(null)
+    setAiStatus("idle")
+    setAiError(null)
+  }, [selectedExercise])
+
+  const exerciseLogs = useMemo(() => {
     if (!selectedExercise) return []
-
-    const exerciseLogs = logs
+    return logs
       .filter((log) => log.exerciseName === selectedExercise)
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
+  }, [logs, selectedExercise])
 
-    // Group by month
-    const monthlyData = exerciseLogs.reduce(
-      (acc, log) => {
-        const date = new Date(log.date)
-        const monthKey = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
-        const monthName = date.toLocaleDateString("es-ES", { month: "short", year: "numeric" })
+  const monthlyStats = useMemo(() => buildMonthlyStats(exerciseLogs), [exerciseLogs])
 
-        if (!acc[monthKey]) {
-          acc[monthKey] = {
-            month: monthName,
-            maxWeight: log.weight,
-            avgWeight: log.weight,
-            count: 1,
-            total: log.weight,
-          }
-        } else {
-          acc[monthKey].maxWeight = Math.max(acc[monthKey].maxWeight, log.weight)
-          acc[monthKey].total += log.weight
-          acc[monthKey].count += 1
-          acc[monthKey].avgWeight = acc[monthKey].total / acc[monthKey].count
-        }
-
-        return acc
-      },
-      {} as Record<string, { month: string; maxWeight: number; avgWeight: number; count: number; total: number }>,
-    )
-
-    return Object.values(monthlyData).map((data) => ({
-      month: data.month,
+  const chartData = useMemo(() => {
+    return monthlyStats.map((data) => ({
+      month: data.monthLabel,
       "Peso Máximo": data.maxWeight,
       "Peso Promedio": Math.round(data.avgWeight * 10) / 10,
     }))
-  }
+  }, [monthlyStats])
 
-  const getStats = () => {
+  const stats = useMemo(() => {
     if (!selectedExercise) return null
-
-    const exerciseLogs = logs
-      .filter((log) => log.exerciseName === selectedExercise)
-      .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-
     if (exerciseLogs.length === 0) return null
 
     const first = exerciseLogs[0]
@@ -89,13 +84,68 @@ export default function ProgressView() {
       avgWeight: Math.round(avgWeight * 10) / 10,
       improvement,
       improvementPercent: Math.round(improvementPercent * 10) / 10,
-      firstWeight: first.weight,
-      lastWeight: last.weight,
+    }
+  }, [exerciseLogs, selectedExercise])
+
+  const fallbackPrediction = useMemo(() => calculateNextMonthPrediction(monthlyStats), [monthlyStats])
+  const nextMonthLabel = useMemo(
+    () => getNextMonthLabel(monthlyStats.length ? monthlyStats[monthlyStats.length - 1].monthKey : null),
+    [monthlyStats],
+  )
+
+  const tableRows = useMemo(() => {
+    const rows = monthlyStats.map((stat) => ({
+      month: stat.monthLabel,
+      maxWeight: stat.maxWeight,
+      avgWeight: Math.round(stat.avgWeight * 10) / 10,
+      predictedWeight: null as number | null,
+      type: "real",
+    }))
+
+    if (fallbackPrediction) {
+      rows.push({
+        month: nextMonthLabel,
+        maxWeight: null,
+        avgWeight: null,
+        predictedWeight: aiResult?.nextMonthPrediction ?? fallbackPrediction,
+        type: "predicted",
+      })
+    }
+
+    return rows
+  }, [monthlyStats, fallbackPrediction, nextMonthLabel, aiResult])
+
+  const handleAiAnalysis = async () => {
+    if (!selectedExercise || exerciseLogs.length === 0) return
+    setAiStatus("loading")
+    setAiError(null)
+    try {
+      const response = await fetch("/api/progression", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          exerciseName: selectedExercise,
+          logs: exerciseLogs,
+        }),
+      })
+      const data = (await response.json()) as AiState & { error?: string }
+      if (!response.ok) {
+        throw new Error(data.error || "No se pudo generar el análisis.")
+      }
+      setAiResult(data)
+      setAiStatus("idle")
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No se pudo generar el análisis."
+      setAiError(message)
+      setAiStatus("error")
+      setAiResult({
+        analysis: "Análisis local basado en tu progresión reciente.",
+        nextMonthPrediction: fallbackPrediction,
+        confidence: "baja",
+        source: "fallback",
+      })
     }
   }
-
-  const chartData = getChartData()
-  const stats = getStats()
 
   return (
     <div className="space-y-6">
@@ -205,7 +255,7 @@ export default function ProgressView() {
                   color: "hsl(var(--chart-2))",
                 },
               }}
-              className="h-[400px] w-full"
+              className="h-[360px] w-full"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
@@ -255,6 +305,73 @@ export default function ProgressView() {
           </CardContent>
         </Card>
       )}
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-primary" />
+            IA de Progresión
+          </CardTitle>
+          <CardDescription>Predicción del próximo mes basada en tu ritmo actual</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex flex-wrap gap-3 items-center">
+            <Button onClick={handleAiAnalysis} disabled={!selectedExercise || exerciseLogs.length === 0 || aiStatus === "loading"}>
+              {aiStatus === "loading" ? "Analizando..." : "Analizar con IA"}
+            </Button>
+            {aiResult?.nextMonthPrediction !== null && aiResult?.nextMonthPrediction !== undefined && (
+              <p className="text-sm text-muted-foreground">
+                Predicción próxima: <span className="font-semibold text-foreground">{aiResult.nextMonthPrediction} kg</span>
+              </p>
+            )}
+          </div>
+          {aiError && <p className="text-sm text-destructive">{aiError}</p>}
+          {aiResult && (
+            <div className="space-y-2 text-sm text-muted-foreground">
+              <p className="text-foreground">{aiResult.analysis}</p>
+              <p>
+                Confianza: <span className="text-foreground font-medium capitalize">{aiResult.confidence}</span>
+                {aiResult.source === "fallback" && " (cálculo local)"}
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Tabla de Progresión Mensual</CardTitle>
+          <CardDescription>Resumen de tu progreso y la predicción estimada</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {tableRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay datos suficientes para construir la tabla.</p>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Mes</TableHead>
+                  <TableHead>Peso máximo</TableHead>
+                  <TableHead>Peso promedio</TableHead>
+                  <TableHead>Predicción</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {tableRows.map((row) => (
+                  <TableRow key={`${row.month}-${row.type}`} className={row.type === "predicted" ? "bg-primary/5" : ""}>
+                    <TableCell className="font-medium">{row.month}</TableCell>
+                    <TableCell>{row.maxWeight !== null ? `${row.maxWeight} kg` : "-"}</TableCell>
+                    <TableCell>{row.avgWeight !== null ? `${row.avgWeight} kg` : "-"}</TableCell>
+                    <TableCell>
+                      {row.predictedWeight !== null ? `${row.predictedWeight} kg` : row.type === "predicted" ? "-" : "—"}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
