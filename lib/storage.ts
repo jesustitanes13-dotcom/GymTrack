@@ -530,8 +530,11 @@ async function resolveUserId() {
 }
 
 function normalizeRoutine(routine: Routine): Routine {
+  const trimmedLabel =
+    typeof routine.label === "string" && routine.label.trim().length > 0 ? routine.label.trim() : undefined
   return {
     ...routine,
+    label: trimmedLabel,
     exercises: (routine.exercises || []).map((exercise) => ({
       ...exercise,
       videoUrl: exercise.videoUrl || "",

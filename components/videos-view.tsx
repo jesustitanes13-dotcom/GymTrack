@@ -67,6 +67,7 @@ export default function VideosView({ syncVersion = 0 }: { syncVersion?: number }
                 placeholder="Ej: Técnica de sentadilla"
                 value={newVideoName}
                 onChange={(e) => setNewVideoName(e.target.value)}
+                className="h-11 text-base"
               />
             </div>
             <div className="space-y-2">
@@ -76,10 +77,11 @@ export default function VideosView({ syncVersion = 0 }: { syncVersion?: number }
                 placeholder="YouTube, Instagram o .mp4"
                 value={newVideoUrl}
                 onChange={(e) => setNewVideoUrl(e.target.value)}
+                className="h-11 text-base"
               />
             </div>
           </div>
-          <Button onClick={addVideo} className="w-full sm:w-auto">
+          <Button onClick={addVideo} className="w-full sm:w-auto h-11 px-5">
             <Plus className="h-4 w-4 mr-2" />
             Añadir video
           </Button>
@@ -106,10 +108,10 @@ export default function VideosView({ syncVersion = 0 }: { syncVersion?: number }
                   className="w-full h-full object-cover"
                 />
                 <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                  <Button size="icon" variant="secondary" onClick={() => setSelectedVideo(video.url)}>
+                  <Button size="icon" variant="secondary" className="h-10 w-10" onClick={() => setSelectedVideo(video.url)}>
                     <Play className="h-5 w-5" />
                   </Button>
-                  <Button size="icon" variant="secondary" onClick={() => window.open(video.url, "_blank")}>
+                  <Button size="icon" variant="secondary" className="h-10 w-10" onClick={() => window.open(video.url, "_blank")}>
                     <ExternalLink className="h-5 w-5" />
                   </Button>
                 </div>

@@ -4,51 +4,90 @@ import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Button } from "@/components/ui/button"
 import { storageService } from "@/lib/storage"
-import type { WorkoutLog } from "@/lib/types"
+import type { MuscleGroup, Routine, WorkoutLog } from "@/lib/types"
+import { MUSCLE_GROUPS } from "@/lib/types"
 import { Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContainer } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
-import { TrendingUp, TrendingDown, Minus, Sparkles } from "lucide-react"
-import { buildMonthlyStats, calculateNextMonthPrediction, getNextMonthLabel } from "@/lib/progression-utils"
-
-type AiState = {
-  analysis: string
-  nextMonthPrediction: number | null
-  confidence: "baja" | "media" | "alta"
-  source: "openai" | "fallback"
-}
+import { TrendingUp, TrendingDown, Minus } from "lucide-react"
+import { buildMonthlyStats } from "@/lib/progression-utils"
 
 export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
+  const [routines, setRoutines] = useState<Routine[]>([])
+  const [selectedMuscle, setSelectedMuscle] = useState<MuscleGroup | "">("")
   const [selectedExercise, setSelectedExercise] = useState<string>("")
-  const [exercises, setExercises] = useState<string[]>([])
-  const [aiResult, setAiResult] = useState<AiState | null>(null)
-  const [aiStatus, setAiStatus] = useState<"idle" | "loading" | "error">("idle")
-  const [aiError, setAiError] = useState<string | null>(null)
 
   useEffect(() => {
     const allLogs = storageService.getLogs()
     setLogs(allLogs)
     void storageService.fetchLogs().then(setLogs)
+    const storedRoutines = storageService.getRoutines()
+    setRoutines(storedRoutines)
+    void storageService.fetchRoutines().then(setRoutines)
   }, [syncVersion])
 
-  useEffect(() => {
-    const uniqueExercises = Array.from(new Set(logs.map((log) => log.exerciseName))).filter(Boolean)
-    setExercises(uniqueExercises)
-    if (uniqueExercises.length > 0 && !uniqueExercises.includes(selectedExercise)) {
-      setSelectedExercise(uniqueExercises[0])
-    }
-    if (uniqueExercises.length === 0) {
-      setSelectedExercise("")
-    }
-  }, [logs, selectedExercise])
+  const exerciseToMuscle = useMemo(() => {
+    const map = new Map<string, MuscleGroup>()
+    routines.forEach((routine) => {
+      routine.exercises.forEach((exercise) => {
+        if (exercise.name && exercise.muscleGroup) {
+          map.set(exercise.name, exercise.muscleGroup)
+        }
+      })
+    })
+    logs.forEach((log) => {
+      if (log.exerciseName && log.muscleGroup) {
+        map.set(log.exerciseName, log.muscleGroup)
+      }
+    })
+    return map
+  }, [routines, logs])
+
+  const exercisesByMuscle = useMemo(() => {
+    const map = new Map<MuscleGroup, string[]>()
+    logs.forEach((log) => {
+      if (!log.exerciseName) return
+      const muscle = log.muscleGroup || exerciseToMuscle.get(log.exerciseName)
+      if (!muscle) return
+      const list = map.get(muscle) ?? []
+      if (!list.includes(log.exerciseName)) {
+        list.push(log.exerciseName)
+      }
+      map.set(muscle, list)
+    })
+    return map
+  }, [logs, exerciseToMuscle])
+
+  const availableMuscles = useMemo(
+    () => MUSCLE_GROUPS.filter((muscle) => exercisesByMuscle.has(muscle)),
+    [exercisesByMuscle],
+  )
+
+  const exerciseOptions = useMemo(() => {
+    if (!selectedMuscle) return []
+    return exercisesByMuscle.get(selectedMuscle) ?? []
+  }, [exercisesByMuscle, selectedMuscle])
 
   useEffect(() => {
-    setAiResult(null)
-    setAiStatus("idle")
-    setAiError(null)
-  }, [selectedExercise])
+    if (availableMuscles.length === 0) {
+      setSelectedMuscle("")
+      return
+    }
+    if (!selectedMuscle || !availableMuscles.includes(selectedMuscle)) {
+      setSelectedMuscle(availableMuscles[0])
+    }
+  }, [availableMuscles, selectedMuscle])
+
+  useEffect(() => {
+    if (exerciseOptions.length === 0) {
+      setSelectedExercise("")
+      return
+    }
+    if (!exerciseOptions.includes(selectedExercise)) {
+      setSelectedExercise(exerciseOptions[0])
+    }
+  }, [exerciseOptions, selectedExercise])
 
   const exerciseLogs = useMemo(() => {
     if (!selectedExercise) return []
@@ -87,65 +126,13 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
     }
   }, [exerciseLogs, selectedExercise])
 
-  const fallbackPrediction = useMemo(() => calculateNextMonthPrediction(monthlyStats), [monthlyStats])
-  const nextMonthLabel = useMemo(
-    () => getNextMonthLabel(monthlyStats.length ? monthlyStats[monthlyStats.length - 1].monthKey : null),
-    [monthlyStats],
-  )
-
   const tableRows = useMemo(() => {
-    const rows = monthlyStats.map((stat) => ({
+    return monthlyStats.map((stat) => ({
       month: stat.monthLabel,
       maxWeight: stat.maxWeight,
       avgWeight: Math.round(stat.avgWeight * 10) / 10,
-      predictedWeight: null as number | null,
-      type: "real",
     }))
-
-    if (fallbackPrediction) {
-      rows.push({
-        month: nextMonthLabel,
-        maxWeight: null,
-        avgWeight: null,
-        predictedWeight: aiResult?.nextMonthPrediction ?? fallbackPrediction,
-        type: "predicted",
-      })
-    }
-
-    return rows
-  }, [monthlyStats, fallbackPrediction, nextMonthLabel, aiResult])
-
-  const handleAiAnalysis = async () => {
-    if (!selectedExercise || exerciseLogs.length === 0) return
-    setAiStatus("loading")
-    setAiError(null)
-    try {
-      const response = await fetch("/api/progression", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          exerciseName: selectedExercise,
-          logs: exerciseLogs,
-        }),
-      })
-      const data = (await response.json()) as AiState & { error?: string }
-      if (!response.ok) {
-        throw new Error(data.error || "No se pudo generar el análisis.")
-      }
-      setAiResult(data)
-      setAiStatus("idle")
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "No se pudo generar el análisis."
-      setAiError(message)
-      setAiStatus("error")
-      setAiResult({
-        analysis: "Análisis local basado en tu progresión reciente.",
-        nextMonthPrediction: fallbackPrediction,
-        confidence: "baja",
-        source: "fallback",
-      })
-    }
-  }
+  }, [monthlyStats])
 
   return (
     <div className="space-y-6">
@@ -156,28 +143,49 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
 
       <Card>
         <CardHeader>
-          <CardTitle>Selecciona un ejercicio</CardTitle>
-          <CardDescription>Elige el ejercicio del que quieres ver la progresión</CardDescription>
+          <CardTitle>Filtra tu progresión</CardTitle>
+          <CardDescription>Selecciona el músculo y luego el ejercicio para ver la comparación mensual</CardDescription>
         </CardHeader>
-        <CardContent>
-          <Select value={selectedExercise} onValueChange={setSelectedExercise}>
-            <SelectTrigger className="w-full max-w-md">
-              <SelectValue placeholder="Selecciona un ejercicio" />
-            </SelectTrigger>
-            <SelectContent>
-              {exercises.length === 0 ? (
-                <SelectItem value="none" disabled>
-                  No hay datos registrados
-                </SelectItem>
-              ) : (
-                exercises.map((exercise) => (
-                  <SelectItem key={exercise} value={exercise}>
-                    {exercise}
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Select value={selectedMuscle} onValueChange={(value) => setSelectedMuscle(value as MuscleGroup)}>
+            <SelectTrigger className="w-full h-11 text-base">
+                <SelectValue placeholder="Selecciona un músculo" />
+              </SelectTrigger>
+              <SelectContent>
+                {availableMuscles.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    No hay datos registrados
                   </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
+                ) : (
+                  availableMuscles.map((muscle) => (
+                    <SelectItem key={muscle} value={muscle}>
+                      {muscle}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+
+            <Select value={selectedExercise} onValueChange={setSelectedExercise} disabled={!selectedMuscle}>
+            <SelectTrigger className="w-full h-11 text-base">
+                <SelectValue placeholder="Selecciona un ejercicio" />
+              </SelectTrigger>
+              <SelectContent>
+                {exerciseOptions.length === 0 ? (
+                  <SelectItem value="none" disabled>
+                    Selecciona un músculo primero
+                  </SelectItem>
+                ) : (
+                  exerciseOptions.map((exercise) => (
+                    <SelectItem key={exercise} value={exercise}>
+                      {exercise}
+                    </SelectItem>
+                  ))
+                )}
+              </SelectContent>
+            </Select>
+          </div>
         </CardContent>
       </Card>
 
@@ -308,63 +316,27 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5 text-primary" />
-            IA de Progresión
-          </CardTitle>
-          <CardDescription>Predicción del próximo mes basada en tu ritmo actual</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="flex flex-wrap gap-3 items-center">
-            <Button onClick={handleAiAnalysis} disabled={!selectedExercise || exerciseLogs.length === 0 || aiStatus === "loading"}>
-              {aiStatus === "loading" ? "Analizando..." : "Analizar con IA"}
-            </Button>
-            {aiResult?.nextMonthPrediction !== null && aiResult?.nextMonthPrediction !== undefined && (
-              <p className="text-sm text-muted-foreground">
-                Predicción próxima: <span className="font-semibold text-foreground">{aiResult.nextMonthPrediction} kg</span>
-              </p>
-            )}
-          </div>
-          {aiError && <p className="text-sm text-destructive">{aiError}</p>}
-          {aiResult && (
-            <div className="space-y-2 text-sm text-muted-foreground">
-              <p className="text-foreground">{aiResult.analysis}</p>
-              <p>
-                Confianza: <span className="text-foreground font-medium capitalize">{aiResult.confidence}</span>
-                {aiResult.source === "fallback" && " (cálculo local)"}
-              </p>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
           <CardTitle>Tabla de Progresión Mensual</CardTitle>
-          <CardDescription>Resumen de tu progreso y la predicción estimada</CardDescription>
+          <CardDescription>Comparativa mensual de peso máximo y promedio</CardDescription>
         </CardHeader>
         <CardContent>
           {tableRows.length === 0 ? (
             <p className="text-sm text-muted-foreground">No hay datos suficientes para construir la tabla.</p>
           ) : (
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Mes</TableHead>
-                  <TableHead>Peso máximo</TableHead>
-                  <TableHead>Peso promedio</TableHead>
-                  <TableHead>Predicción</TableHead>
+            <Table className="border border-border/70 rounded-lg overflow-hidden">
+              <TableHeader className="bg-muted/60">
+                <TableRow className="hover:bg-muted/60">
+                  <TableHead className="text-foreground">Mes</TableHead>
+                  <TableHead className="text-foreground">Peso máximo</TableHead>
+                  <TableHead className="text-foreground">Peso promedio</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {tableRows.map((row) => (
-                  <TableRow key={`${row.month}-${row.type}`} className={row.type === "predicted" ? "bg-primary/5" : ""}>
-                    <TableCell className="font-medium">{row.month}</TableCell>
-                    <TableCell>{row.maxWeight !== null ? `${row.maxWeight} kg` : "-"}</TableCell>
-                    <TableCell>{row.avgWeight !== null ? `${row.avgWeight} kg` : "-"}</TableCell>
-                    <TableCell>
-                      {row.predictedWeight !== null ? `${row.predictedWeight} kg` : row.type === "predicted" ? "-" : "—"}
-                    </TableCell>
+                  <TableRow key={row.month} className="hover:bg-muted/30">
+                    <TableCell className="font-medium text-foreground">{row.month}</TableCell>
+                    <TableCell className="text-foreground">{row.maxWeight !== null ? `${row.maxWeight} kg` : "-"}</TableCell>
+                    <TableCell className="text-foreground">{row.avgWeight !== null ? `${row.avgWeight} kg` : "-"}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>

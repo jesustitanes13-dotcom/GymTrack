@@ -1,12 +1,16 @@
 "use client"
 
+import type React from "react"
+
 import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
 import { cn } from "@/lib/utils"
 import { storageService } from "@/lib/storage"
 import type { Routine } from "@/lib/types"
-import { CheckCircle2 } from "lucide-react"
+import { CheckCircle2, Pencil, Save, X } from "lucide-react"
 
 const DAYS = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
@@ -18,6 +22,8 @@ interface WeekCalendarProps {
 export default function WeekCalendar({ onDaySelect, syncVersion = 0 }: WeekCalendarProps) {
   const [routines, setRoutines] = useState<Routine[]>([])
   const [currentDay, setCurrentDay] = useState("")
+  const [editingDay, setEditingDay] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState("")
 
   useEffect(() => {
     setRoutines(storageService.getRoutines())
@@ -38,6 +44,37 @@ export default function WeekCalendar({ onDaySelect, syncVersion = 0 }: WeekCalen
     return { completed, total, percentage }
   }
 
+  const getDisplayName = (day: string, routine?: Routine) => {
+    if (routine?.label) return routine.label
+    return day
+  }
+
+  const handleEditStart = (day: string, routine?: Routine, event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    setEditingDay(day)
+    setEditValue(getDisplayName(day, routine))
+  }
+
+  const handleEditCancel = (event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    setEditingDay(null)
+    setEditValue("")
+  }
+
+  const handleEditSave = (day: string, event?: React.MouseEvent) => {
+    event?.stopPropagation()
+    const trimmed = editValue.trim()
+    const normalizedLabel = trimmed && trimmed !== day ? trimmed : undefined
+    const updatedRoutines = routines.some((routine) => routine.day === day)
+      ? routines.map((routine) => (routine.day === day ? { ...routine, label: normalizedLabel } : routine))
+      : [...routines, { day, exercises: [], label: normalizedLabel }]
+
+    setRoutines(updatedRoutines)
+    storageService.saveRoutines(updatedRoutines)
+    setEditingDay(null)
+    setEditValue("")
+  }
+
   return (
     <div className="space-y-4">
       <div>
@@ -53,6 +90,9 @@ export default function WeekCalendar({ onDaySelect, syncVersion = 0 }: WeekCalen
           const hasExercises = routine && routine.exercises.length > 0
           const isRestDay = !hasExercises
 
+          const displayName = getDisplayName(day, routine)
+          const isEditing = editingDay === day
+
           return (
             <Card
               key={day}
@@ -64,14 +104,66 @@ export default function WeekCalendar({ onDaySelect, syncVersion = 0 }: WeekCalen
               onClick={() => onDaySelect(day)}
             >
               <CardContent className="p-4 space-y-3">
-                <div className="flex items-center justify-between">
-                  <h3 className={cn("font-semibold text-lg", isToday && "text-primary")}>{day}</h3>
-                  {isToday && (
-                    <Badge variant="default" className="bg-primary text-primary-foreground">
-                      Hoy
-                    </Badge>
-                  )}
-                  {percentage === 100 && hasExercises && !isToday && <CheckCircle2 className="h-5 w-5 text-accent" />}
+                <div className="flex items-start justify-between gap-2">
+                  <div className="flex-1 space-y-2">
+                    {isEditing ? (
+                      <div
+                        className="space-y-2"
+                        onClick={(event) => event.stopPropagation()}
+                      >
+                        <Input
+                          value={editValue}
+                          onChange={(event) => setEditValue(event.target.value)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter") handleEditSave(day)
+                            if (event.key === "Escape") handleEditCancel()
+                          }}
+                          className="h-11 text-base"
+                          placeholder={`Nombre para ${day}`}
+                        />
+                        <div className="flex flex-wrap gap-2">
+                          <Button
+                            size="sm"
+                            className="h-9 px-3"
+                            onClick={(event) => handleEditSave(day, event)}
+                          >
+                            <Save className="h-4 w-4 mr-1" />
+                            Guardar
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="h-9 px-3"
+                            onClick={handleEditCancel}
+                          >
+                            <X className="h-4 w-4 mr-1" />
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
+                    ) : (
+                      <h3 className={cn("font-semibold text-lg", isToday && "text-primary")}>{displayName}</h3>
+                    )}
+                  </div>
+
+                  <div className="flex items-center gap-2">
+                    {isToday && (
+                      <Badge variant="default" className="bg-primary text-primary-foreground">
+                        Hoy
+                      </Badge>
+                    )}
+                    {percentage === 100 && hasExercises && !isToday && <CheckCircle2 className="h-5 w-5 text-accent" />}
+                    {!isEditing && (
+                      <Button
+                        size="icon"
+                        variant="ghost"
+                        className="h-9 w-9"
+                        onClick={(event) => handleEditStart(day, routine, event)}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                    )}
+                  </div>
                 </div>
 
                 {isRestDay ? (

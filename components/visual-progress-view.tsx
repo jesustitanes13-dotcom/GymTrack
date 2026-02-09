@@ -156,12 +156,13 @@ function PhotoUpload({
   return (
     <div className="space-y-2">
       <label className="text-sm font-medium">{label}</label>
-      <div className="relative overflow-hidden rounded-lg border border-border bg-muted/40 h-56 flex items-center justify-center">
-        {preview ? <img src={preview} alt={label} className="h-full w-full object-cover" /> : <span className="text-xs text-muted-foreground">Sin foto</span>}
+      <div className="relative overflow-hidden rounded-lg border border-border bg-muted/40 aspect-[3/4] w-full flex items-center justify-center">
+        {preview ? <img src={preview} alt={label} className="h-full w-full object-contain" /> : <span className="text-xs text-muted-foreground">Sin foto</span>}
       </div>
       <Input
         type="file"
         accept="image/*"
+        className="h-11"
         onChange={(event) => {
           const file = event.target.files?.[0]
           if (file) onChange(file)
@@ -200,8 +201,8 @@ function ImageSlot({ label, src }: { label: string; src?: string }) {
   return (
     <div className="space-y-2">
       <p className="text-xs text-muted-foreground">{label}</p>
-      <div className="h-40 rounded-lg border border-border bg-muted/40 flex items-center justify-center overflow-hidden">
-        {src ? <img src={src} alt={label} className="h-full w-full object-cover" /> : <span className="text-xs text-muted-foreground">Sin foto</span>}
+      <div className="rounded-lg border border-border bg-muted/40 flex items-center justify-center overflow-hidden aspect-[3/4] w-full">
+        {src ? <img src={src} alt={label} className="h-full w-full object-contain" /> : <span className="text-xs text-muted-foreground">Sin foto</span>}
       </div>
     </div>
   )

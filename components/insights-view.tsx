@@ -2,6 +2,15 @@
 
 import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { storageService } from "@/lib/storage"
 import type { MuscleGroup, Routine, WorkoutLog } from "@/lib/types"
 import { calculateVolume, getDayKey } from "@/lib/workout-utils"
@@ -71,6 +80,24 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
   const totalVolume = volumeData.reduce((sum, item) => sum + item.volume, 0)
   const totalSessions = frequencyData.reduce((sum, item) => sum + item.sessions, 0)
 
+  const sessionRows = useMemo(() => {
+    return [...logs]
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .map((log) => ({
+        id: `${log.exerciseId}-${log.date}`,
+        dateLabel: new Date(log.date).toLocaleString("es-ES", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        }),
+        exerciseName: log.exerciseName,
+        weight: log.weight,
+        setsReps: log.setsReps,
+      }))
+  }, [logs])
+
   return (
     <div className="space-y-6">
       <div>
@@ -98,17 +125,52 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                 </div>
               </CardContent>
             </Card>
-            <Card>
-              <CardContent className="p-6">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-sm text-muted-foreground">Sesiones registradas</p>
-                    <p className="text-3xl font-bold">{totalSessions}</p>
-                  </div>
-                  <BarChart3 className="h-6 w-6 text-primary" />
-                </div>
-              </CardContent>
-            </Card>
+            <Dialog>
+              <DialogTrigger asChild>
+                <Card className="cursor-pointer transition-transform hover:-translate-y-1">
+                  <CardContent className="p-6">
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">Sesiones registradas</p>
+                        <p className="text-3xl font-bold">{totalSessions}</p>
+                        <p className="text-xs text-muted-foreground mt-1">Toca para ver el detalle</p>
+                      </div>
+                      <BarChart3 className="h-6 w-6 text-primary" />
+                    </div>
+                  </CardContent>
+                </Card>
+              </DialogTrigger>
+              <DialogContent className="max-w-2xl">
+                <DialogHeader>
+                  <DialogTitle>Detalle de sesiones registradas</DialogTitle>
+                  <DialogDescription>Fecha, ejercicio y carga registrada en cada sesión</DialogDescription>
+                </DialogHeader>
+                {sessionRows.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">Aún no hay sesiones registradas.</p>
+                ) : (
+                  <Table className="border border-border/70 rounded-lg overflow-hidden">
+                    <TableHeader className="bg-muted/60">
+                      <TableRow className="hover:bg-muted/60">
+                        <TableHead className="text-foreground">Fecha</TableHead>
+                        <TableHead className="text-foreground">Ejercicio</TableHead>
+                        <TableHead className="text-foreground">Peso</TableHead>
+                        <TableHead className="text-foreground">Series</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {sessionRows.map((row) => (
+                        <TableRow key={row.id} className="hover:bg-muted/30">
+                          <TableCell className="font-medium text-foreground">{row.dateLabel}</TableCell>
+                          <TableCell className="text-foreground">{row.exerciseName}</TableCell>
+                          <TableCell className="text-foreground">{row.weight} kg</TableCell>
+                          <TableCell className="text-foreground">{row.setsReps}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </DialogContent>
+            </Dialog>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-2">

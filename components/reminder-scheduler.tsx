@@ -25,7 +25,7 @@ export default function ReminderScheduler() {
 
       const routines = storageService.getRoutines()
       const routine = routines.find((item) => item.day === capitalizedDay)
-      const routineName = routine && routine.exercises.length > 0 ? routine.day : "Descanso"
+      const routineName = routine && routine.exercises.length > 0 ? routine.label || routine.day : "Descanso"
       const message = `Hoy toca ${routineName}, ¡no faltes!`
 
       if (settings.notifyInApp) {
@@ -33,7 +33,11 @@ export default function ReminderScheduler() {
       }
 
       if (settings.emailEnabled && settings.email) {
-        void sendEmailReminder(settings.email, message)
+        void sendEmailReminder(settings.email, message).then((result) => {
+          if (!result.ok && settings.notifyInApp) {
+            sendLocalNotification(result.message || "No se pudo enviar el recordatorio por email.")
+          }
+        })
       }
 
       storageService.setReminderLastSent(dayKey)
@@ -56,9 +60,9 @@ function sendLocalNotification(message: string) {
   window.alert(message)
 }
 
-async function sendEmailReminder(email: string, message: string) {
+async function sendEmailReminder(email: string, message: string): Promise<{ ok: boolean; message?: string }> {
   try {
-    await fetch("/api/reminders/send", {
+    const response = await fetch("/api/reminders/send", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -67,7 +71,12 @@ async function sendEmailReminder(email: string, message: string) {
         subject: "Recordatorio de entrenamiento",
       }),
     })
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}))
+      return { ok: false, message: data?.error }
+    }
+    return { ok: true }
   } catch {
-    // Ignore failures for local reminders
+    return { ok: false, message: "Error de red al enviar el email." }
   }
 }
