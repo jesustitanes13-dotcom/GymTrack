@@ -16,7 +16,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "RESEND_API_KEY no configurado." }, { status: 500 })
     }
 
-    const from = process.env.RESEND_FROM_EMAIL || "FitTrack Pro <onboarding@resend.dev>"
+    const from = "FitTrack Pro <onboarding@resend.dev>"
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
