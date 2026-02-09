@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { storageService } from "@/lib/storage"
-import type { MuscleGroup, Routine, WorkoutLog } from "@/lib/types"
+import { MUSCLE_GROUPS, type MuscleGroup, type Routine, type WorkoutLog } from "@/lib/types"
 import { calculateVolume, getDayKey } from "@/lib/workout-utils"
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, XAxis, YAxis, Tooltip } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
@@ -63,17 +63,19 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
 
   const volumeData = useMemo(
     () =>
-      Array.from(volumeByMuscle.entries())
-        .map(([muscle, volume]) => ({ muscle, volume: Math.round(volume) }))
-        .sort((a, b) => b.volume - a.volume),
+      MUSCLE_GROUPS.map((muscle) => ({
+        muscle,
+        volume: Math.round(volumeByMuscle.get(muscle) ?? 0),
+      })),
     [volumeByMuscle],
   )
 
   const frequencyData = useMemo(
     () =>
-      Array.from(frequencyByMuscle.entries())
-        .map(([muscle, sessions]) => ({ muscle, sessions: sessions.size }))
-        .sort((a, b) => b.sessions - a.sessions),
+      MUSCLE_GROUPS.map((muscle) => ({
+        muscle,
+        sessions: frequencyByMuscle.get(muscle)?.size ?? 0,
+      })),
     [frequencyByMuscle],
   )
 
@@ -120,6 +122,9 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                   <div>
                     <p className="text-sm text-muted-foreground">Volumen total</p>
                     <p className="text-3xl font-bold">{totalVolume.toLocaleString()} kg</p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Suma total de peso levantado en todas tus sesiones
+                    </p>
                   </div>
                   <Dumbbell className="h-6 w-6 text-primary" />
                 </div>
@@ -184,17 +189,38 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                   config={{
                     volume: {
                       label: "Volumen",
-                      color: "hsl(var(--chart-1))",
+                      color: "#22d3ee",
                     },
                   }}
-                  className="h-[320px]"
+                  className="h-[320px] rounded-lg bg-slate-950/40 p-2"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={volumeData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="muscle" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
-                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
-                      <Tooltip content={<ChartTooltipContent />} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+                      <XAxis
+                        dataKey="muscle"
+                        tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                        axisLine={{ stroke: "#94a3b8" }}
+                        tickLine={{ stroke: "#94a3b8" }}
+                        interval={0}
+                        angle={-30}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                        axisLine={{ stroke: "#94a3b8" }}
+                        tickLine={{ stroke: "#94a3b8" }}
+                      />
+                      <Tooltip
+                        content={
+                          <ChartTooltipContent
+                            className="bg-slate-900/95 text-slate-100 border-slate-700 text-sm"
+                            labelClassName="text-slate-100"
+                          />
+                        }
+                        cursor={{ fill: "rgba(148,163,184,0.15)" }}
+                      />
                       <Bar dataKey="volume" fill="var(--color-volume)" radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -212,17 +238,38 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                   config={{
                     sessions: {
                       label: "Sesiones",
-                      color: "hsl(var(--chart-2))",
+                      color: "#4ade80",
                     },
                   }}
-                  className="h-[320px]"
+                  className="h-[320px] rounded-lg bg-slate-950/40 p-2"
                 >
                   <ResponsiveContainer width="100%" height="100%">
                     <BarChart data={frequencyData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                      <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                      <XAxis dataKey="muscle" tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
-                      <YAxis tick={{ fill: "hsl(var(--muted-foreground))", fontSize: 10 }} />
-                      <Tooltip content={<ChartTooltipContent />} />
+                      <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+                      <XAxis
+                        dataKey="muscle"
+                        tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                        axisLine={{ stroke: "#94a3b8" }}
+                        tickLine={{ stroke: "#94a3b8" }}
+                        interval={0}
+                        angle={-30}
+                        textAnchor="end"
+                        height={60}
+                      />
+                      <YAxis
+                        tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                        axisLine={{ stroke: "#94a3b8" }}
+                        tickLine={{ stroke: "#94a3b8" }}
+                      />
+                      <Tooltip
+                        content={
+                          <ChartTooltipContent
+                            className="bg-slate-900/95 text-slate-100 border-slate-700 text-sm"
+                            labelClassName="text-slate-100"
+                          />
+                        }
+                        cursor={{ fill: "rgba(148,163,184,0.15)" }}
+                      />
                       <Bar dataKey="sessions" fill="var(--color-sessions)" radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>

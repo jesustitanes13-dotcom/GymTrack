@@ -256,46 +256,62 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
               config={{
                 "Peso Máximo": {
                   label: "Peso Máximo",
-                  color: "hsl(var(--chart-1))",
+                  color: "#38bdf8",
                 },
                 "Peso Promedio": {
                   label: "Peso Promedio",
-                  color: "hsl(var(--chart-2))",
+                  color: "#facc15",
                 },
               }}
-              className="h-[360px] w-full"
+              className="h-[360px] w-full rounded-lg bg-slate-950/40 p-2"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
-                  <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
-                  <XAxis dataKey="month" className="text-xs" tick={{ fill: "hsl(var(--muted-foreground))" }} />
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                    axisLine={{ stroke: "#94a3b8" }}
+                    tickLine={{ stroke: "#94a3b8" }}
+                  />
                   <YAxis
-                    className="text-xs"
-                    tick={{ fill: "hsl(var(--muted-foreground))" }}
+                    tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                    axisLine={{ stroke: "#94a3b8" }}
+                    tickLine={{ stroke: "#94a3b8" }}
                     label={{
                       value: "Peso (kg)",
                       angle: -90,
                       position: "insideLeft",
-                      fill: "hsl(var(--muted-foreground))",
+                      fill: "#e2e8f0",
                     }}
                   />
-                  <ChartTooltip content={<ChartTooltipContent />} />
-                  <Legend />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        className="bg-slate-900/95 text-slate-100 border-slate-700 text-sm"
+                        labelClassName="text-slate-100"
+                      />
+                    }
+                    cursor={{ stroke: "rgba(148,163,184,0.6)" }}
+                  />
+                  <Legend
+                    formatter={(value) => <span className="text-slate-100 text-sm">{value}</span>}
+                  />
                   <Line
                     type="monotone"
                     dataKey="Peso Máximo"
                     stroke="var(--color-Peso Máximo)"
-                    strokeWidth={3}
-                    dot={{ fill: "var(--color-Peso Máximo)", r: 5 }}
-                    activeDot={{ r: 7 }}
+                    strokeWidth={4}
+                    dot={{ fill: "var(--color-Peso Máximo)", r: 6, stroke: "#f8fafc", strokeWidth: 2 }}
+                    activeDot={{ r: 9 }}
                   />
                   <Line
                     type="monotone"
                     dataKey="Peso Promedio"
                     stroke="var(--color-Peso Promedio)"
-                    strokeWidth={2}
-                    strokeDasharray="5 5"
-                    dot={{ fill: "var(--color-Peso Promedio)", r: 4 }}
+                    strokeWidth={3}
+                    strokeDasharray="4 4"
+                    dot={{ fill: "var(--color-Peso Promedio)", r: 5, stroke: "#f8fafc", strokeWidth: 2 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
