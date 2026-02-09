@@ -11,26 +11,37 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Email y mensaje son requeridos." }, { status: 400 })
     }
 
-    if (!process.env.RESEND_API_KEY) {
+    const resendApiKey = process.env.RESEND_API_KEY
+    if (!resendApiKey) {
       return NextResponse.json({ error: "RESEND_API_KEY no configurado." }, { status: 500 })
     }
+
+    const from = process.env.RESEND_FROM_EMAIL || "FitTrack Pro <onboarding@resend.dev>"
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.RESEND_API_KEY}`,
+        Authorization: `Bearer ${resendApiKey}`,
       },
       body: JSON.stringify({
-        from: "FitTrack Pro <onboarding@resend.dev>",
+        from,
         to: email,
         subject,
         html: `<p>${message}</p>`,
+        text: message,
       }),
     })
 
     if (!resendResponse.ok) {
-      return NextResponse.json({ error: "No se pudo enviar el email." }, { status: 500 })
+      let details = "No se pudo enviar el email."
+      try {
+        const data = await resendResponse.json()
+        if (data?.message) details = data.message
+      } catch {
+        // ignore parse errors
+      }
+      return NextResponse.json({ error: details }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true })

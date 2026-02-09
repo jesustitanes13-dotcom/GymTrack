@@ -99,7 +99,7 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
           Sincronizado
         </Badge>
         <span className="text-xs text-muted-foreground hidden md:inline">{session.user.email}</span>
-        <Button variant="ghost" size="sm" onClick={handleSignOut}>
+        <Button variant="ghost" size="sm" className="h-9 px-3" onClick={handleSignOut}>
           Cerrar sesión
         </Button>
       </div>
@@ -113,9 +113,9 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
         placeholder="tu@email.com"
         value={email}
         onChange={(event) => setEmail(event.target.value)}
-        className="h-8 text-xs w-full sm:w-56"
+        className="h-10 text-sm w-full sm:w-56"
       />
-      <Button size="sm" onClick={handleSignIn} disabled={!email || status === "sending"}>
+      <Button size="sm" className="h-10 px-4" onClick={handleSignIn} disabled={!email || status === "sending"}>
         {status === "sending" ? "Enviando..." : "Enviar enlace"}
       </Button>
       {message && <span className="text-[11px] text-muted-foreground">{message}</span>}

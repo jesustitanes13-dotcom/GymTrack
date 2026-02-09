@@ -67,13 +67,14 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
                 type="time"
                 value={settings.time}
                 onChange={(event) => updateSettings({ time: event.target.value })}
+                className="h-11 text-base"
               />
             </div>
             <div className="space-y-2">
               <label className="text-sm font-medium">Permiso</label>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-muted-foreground">Estado: {permission}</span>
-                <Button size="sm" variant="outline" onClick={requestPermission}>
+                <Button size="sm" variant="outline" className="h-9 px-3" onClick={requestPermission}>
                   Solicitar permiso
                 </Button>
               </div>
@@ -89,7 +90,7 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
               className="flex flex-wrap w-full"
             >
               {DAYS.map((day) => (
-                <ToggleGroupItem key={day} value={day} className="text-xs px-3">
+                <ToggleGroupItem key={day} value={day} className="text-xs px-3 h-9">
                   {day.slice(0, 3)}
                 </ToggleGroupItem>
               ))}
@@ -136,6 +137,7 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
               placeholder="tu@email.com"
               value={settings.email}
               onChange={(event) => updateSettings({ email: event.target.value })}
+              className="h-11 text-base"
             />
           </div>
         </CardContent>

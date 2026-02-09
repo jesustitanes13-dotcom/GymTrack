@@ -168,7 +168,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
             <ArrowLeft className="h-5 w-5" />
           </Button>
           <div>
-            <h2 className="text-3xl font-bold text-balance">{selectedDay}</h2>
+            <h2 className="text-3xl font-bold text-balance">{routine?.label || routine?.day || selectedDay}</h2>
             <p className="text-sm text-muted-foreground">
               {completedCount} de {totalCount} ejercicios completados
             </p>
@@ -178,6 +178,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
         <div className="flex items-center gap-2">
           <Button
             variant={isEditMode ? "default" : "outline"}
+            className="h-10 px-4"
             onClick={() => {
               if (isEditMode) saveRoutine()
               setIsEditMode(!isEditMode)
@@ -193,7 +194,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
         <Card>
           <CardContent className="p-12 text-center space-y-4">
             <p className="text-muted-foreground">No hay ejercicios para este día</p>
-            <Button onClick={addExercise}>
+              <Button onClick={addExercise} className="h-11 px-5">
               <Plus className="h-4 w-4 mr-2" />
               Añadir primer ejercicio
             </Button>
@@ -244,6 +245,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                             <Input
                               value={exercise.name}
                               onChange={(e) => updateExercise(index, "name", e.target.value)}
+                              className="h-10 text-base"
                             />
                             <Select
                               value={exercise.muscleGroup}
@@ -251,7 +253,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                                 updateExercise(index, "muscleGroup", value as Exercise["muscleGroup"])
                               }
                             >
-                              <SelectTrigger className="h-8 text-xs">
+                              <SelectTrigger className="h-9 text-xs">
                                 <SelectValue placeholder="Grupo muscular" />
                               </SelectTrigger>
                               <SelectContent>
@@ -300,7 +302,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                             value={exercise.setsReps}
                             onChange={(e) => updateExercise(index, "setsReps", e.target.value)}
                             placeholder="4x8-10"
-                            className="w-[100px]"
+                            className="w-[100px] h-10 text-base"
                           />
                         ) : (
                           <Badge variant="secondary">{exercise.setsReps}</Badge>
@@ -312,7 +314,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                             value={exercise.videoUrl}
                             onChange={(e) => updateExercise(index, "videoUrl", e.target.value)}
                             placeholder="URL"
-                            className="w-[80px] text-xs"
+                            className="w-[80px] h-10 text-xs"
                           />
                         ) : exercise.videoUrl && isVideoUrl(exercise.videoUrl) ? (
                           <button onClick={() => setSelectedVideo(exercise.videoUrl)} className="relative group">
@@ -332,11 +334,17 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                       <td className="p-3">
                         <Input
                           type="number"
-                          value={exercise.currentWeight}
-                          onChange={(e) =>
-                            updateExercise(index, "currentWeight", Number.parseFloat(e.target.value) || 0)
-                          }
-                          className="w-[80px]"
+                          value={exercise.currentWeight === 0 ? "" : exercise.currentWeight}
+                          onChange={(e) => {
+                            const value = e.target.value
+                            if (value === "") {
+                              updateExercise(index, "currentWeight", 0)
+                              return
+                            }
+                            const parsed = Number.parseFloat(value)
+                            updateExercise(index, "currentWeight", Number.isNaN(parsed) ? 0 : parsed)
+                          }}
+                          className="w-[90px] h-10 text-base"
                           disabled={isEditMode}
                         />
                       </td>
@@ -358,6 +366,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                               variant="outline"
                               onClick={() => saveLog(index)}
                               disabled={exercise.currentWeight === 0}
+                            className="h-9 px-3"
                             >
                               <Save className="h-3 w-3 mr-1" />
                               Log

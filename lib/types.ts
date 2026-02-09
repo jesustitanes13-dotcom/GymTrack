@@ -27,6 +27,7 @@ export interface Exercise {
 export interface Routine {
   day: string
   exercises: Exercise[]
+  label?: string
 }
 
 export interface WorkoutLog {

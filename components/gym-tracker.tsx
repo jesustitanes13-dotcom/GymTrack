@@ -120,49 +120,49 @@ export default function GymTracker() {
             <TabsList className="w-full flex h-auto p-1 gap-1 overflow-x-auto">
               <TabsTrigger
                 value="calendar"
-                className="flex items-center gap-2 flex-none min-w-[130px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[130px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Calendar className="h-4 w-4" />
                 <span className="hidden sm:inline">Calendario</span>
               </TabsTrigger>
               <TabsTrigger
                 value="routine"
-                className="flex items-center gap-2 flex-none min-w-[130px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[130px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Dumbbell className="h-4 w-4" />
                 <span className="hidden sm:inline">Rutina</span>
               </TabsTrigger>
               <TabsTrigger
                 value="progress"
-                className="flex items-center gap-2 flex-none min-w-[130px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[130px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <TrendingUp className="h-4 w-4" />
                 <span className="hidden sm:inline">Progresión</span>
               </TabsTrigger>
               <TabsTrigger
                 value="insights"
-                className="flex items-center gap-2 flex-none min-w-[130px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[130px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <BarChart3 className="h-4 w-4" />
                 <span className="hidden sm:inline">Insights</span>
               </TabsTrigger>
               <TabsTrigger
                 value="visual"
-                className="flex items-center gap-2 flex-none min-w-[150px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[150px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Camera className="h-4 w-4" />
                 <span className="hidden sm:inline">Progreso Visual</span>
               </TabsTrigger>
               <TabsTrigger
                 value="reminders"
-                className="flex items-center gap-2 flex-none min-w-[150px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[150px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Bell className="h-4 w-4" />
                 <span className="hidden sm:inline">Recordatorios</span>
               </TabsTrigger>
               <TabsTrigger
                 value="videos"
-                className="flex items-center gap-2 flex-none min-w-[130px] data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
+                className="flex items-center gap-2 flex-none min-w-[130px] h-11 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
               >
                 <Video className="h-4 w-4" />
                 <span className="hidden sm:inline">Mis Videos</span>
