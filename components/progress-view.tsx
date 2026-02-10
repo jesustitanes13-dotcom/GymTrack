@@ -11,6 +11,7 @@ import { Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContain
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { buildMonthlyStats } from "@/lib/progression-utils"
+import { parseSetsReps } from "@/lib/workout-utils"
 
 export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
@@ -101,8 +102,7 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
   const chartData = useMemo(() => {
     return monthlyStats.map((data) => ({
       month: data.monthLabel,
-      "Peso Máximo": data.maxWeight,
-      "Peso Promedio": Math.round(data.avgWeight * 10) / 10,
+      maxWeight: data.maxWeight,
     }))
   }, [monthlyStats])
 
@@ -126,6 +126,28 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
     }
   }, [exerciseLogs, selectedExercise])
 
+  const estimated1Rm = useMemo(() => {
+    if (!exerciseLogs.length) return null
+    const last = exerciseLogs[exerciseLogs.length - 1]
+    const reps = last.reps ?? parseSetsReps(last.setsReps).reps
+    if (!last.weight || !reps) return null
+    const estimate = last.weight * (1 + reps / 30)
+    return Math.round(estimate)
+  }, [exerciseLogs])
+
+  const suggestedWeight = useMemo(() => {
+    if (!stats?.maxWeight) return null
+    const suggestion = stats.maxWeight * 1.02
+    return Math.round(suggestion * 2) / 2
+  }, [stats?.maxWeight])
+
+  const yTicks = useMemo(() => {
+    const max = Math.max(0, ...monthlyStats.map((stat) => stat.maxWeight))
+    const step = 20
+    const maxTick = Math.max(step, Math.ceil(max / step) * step)
+    return Array.from({ length: maxTick / step + 1 }, (_, index) => index * step)
+  }, [monthlyStats])
+
   const tableRows = useMemo(() => {
     return monthlyStats.map((stat) => ({
       month: stat.monthLabel,
@@ -133,6 +155,28 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
       avgWeight: Math.round(stat.avgWeight * 10) / 10,
     }))
   }, [monthlyStats])
+
+  const personalRecords = useMemo(() => {
+    const map = new Map<string, { weight: number; date: string }>()
+    logs.forEach((log) => {
+      const current = map.get(log.exerciseName)
+      if (!current || log.weight > current.weight) {
+        map.set(log.exerciseName, { weight: log.weight, date: log.date })
+      }
+    })
+    return Array.from(map.entries())
+      .map(([exercise, data]) => ({
+        exercise,
+        weight: data.weight,
+        date: new Date(data.date).toLocaleDateString("es-ES", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+        }),
+      }))
+      .sort((a, b) => b.weight - a.weight)
+      .slice(0, 5)
+  }, [logs])
 
   return (
     <div className="space-y-6">
@@ -190,7 +234,7 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
       </Card>
 
       {stats && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
           <Card>
             <CardContent className="p-6">
               <div className="space-y-2">
@@ -242,6 +286,20 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
               </div>
             </CardContent>
           </Card>
+
+          <Card>
+            <CardContent className="p-6">
+              <div className="space-y-2">
+                <p className="text-sm text-muted-foreground">Máximo estimado (1RM)</p>
+                <p className="text-3xl font-bold">{estimated1Rm ? `${estimated1Rm} kg` : "—"}</p>
+                {suggestedWeight && (
+                  <p className="text-xs text-muted-foreground">
+                    Hoy te toca intentar {suggestedWeight} kg para seguir progresando.
+                  </p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
         </div>
       )}
 
@@ -254,13 +312,9 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
           <CardContent>
             <ChartContainer
               config={{
-                "Peso Máximo": {
-                  label: "Peso Máximo",
+                maxWeight: {
+                  label: "Máximo mensual",
                   color: "#38bdf8",
-                },
-                "Peso Promedio": {
-                  label: "Peso Promedio",
-                  color: "#facc15",
                 },
               }}
               className="h-[360px] w-full rounded-lg bg-slate-950/40 p-2"
@@ -273,11 +327,13 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
                     tick={{ fill: "#e2e8f0", fontSize: 12 }}
                     axisLine={{ stroke: "#94a3b8" }}
                     tickLine={{ stroke: "#94a3b8" }}
+                    tickFormatter={(value) => String(value).split(" ")[0]}
                   />
                   <YAxis
                     tick={{ fill: "#e2e8f0", fontSize: 12 }}
                     axisLine={{ stroke: "#94a3b8" }}
                     tickLine={{ stroke: "#94a3b8" }}
+                    ticks={yTicks}
                     label={{
                       value: "Peso (kg)",
                       angle: -90,
@@ -293,25 +349,19 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
                       />
                     }
                     cursor={{ stroke: "rgba(148,163,184,0.6)" }}
+                    formatter={(value: number) => [`${value} kg`, "Máximo"]}
                   />
                   <Legend
                     formatter={(value) => <span className="text-slate-100 text-sm">{value}</span>}
                   />
                   <Line
                     type="monotone"
-                    dataKey="Peso Máximo"
-                    stroke="var(--color-Peso Máximo)"
+                    dataKey="maxWeight"
+                    name="Máximo mensual"
+                    stroke="var(--color-maxWeight)"
                     strokeWidth={4}
-                    dot={{ fill: "var(--color-Peso Máximo)", r: 6, stroke: "#f8fafc", strokeWidth: 2 }}
+                    dot={{ fill: "var(--color-maxWeight)", r: 7, stroke: "#f8fafc", strokeWidth: 2 }}
                     activeDot={{ r: 9 }}
-                  />
-                  <Line
-                    type="monotone"
-                    dataKey="Peso Promedio"
-                    stroke="var(--color-Peso Promedio)"
-                    strokeWidth={3}
-                    strokeDasharray="4 4"
-                    dot={{ fill: "var(--color-Peso Promedio)", r: 5, stroke: "#f8fafc", strokeWidth: 2 }}
                   />
                 </LineChart>
               </ResponsiveContainer>
@@ -357,6 +407,28 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
                 ))}
               </TableBody>
             </Table>
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Muro de Trofeos</CardTitle>
+          <CardDescription>Los 5 levantamientos más fuertes registrados</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {personalRecords.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aún no hay récords para mostrar.</p>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              {personalRecords.map((record) => (
+                <div key={record.exercise} className="rounded-xl border border-border/70 bg-muted/30 p-4 text-center">
+                  <p className="text-sm font-semibold text-foreground">{record.exercise}</p>
+                  <p className="text-2xl font-bold text-emerald-400 mt-2">{record.weight} kg</p>
+                  <p className="text-xs text-muted-foreground mt-1">{record.date}</p>
+                </div>
+              ))}
+            </div>
           )}
         </CardContent>
       </Card>

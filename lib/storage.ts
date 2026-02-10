@@ -1,4 +1,13 @@
-import type { MuscleGroup, ProgressPhoto, ReminderSettings, RestSettings, Routine, Video, WorkoutLog } from "./types"
+import type {
+  ExerciseNote,
+  MuscleGroup,
+  ProgressPhoto,
+  ReminderSettings,
+  RestSettings,
+  Routine,
+  Video,
+  WorkoutLog,
+} from "./types"
 import { calculateVolume, normalizeLogs, parseSetsReps } from "./workout-utils"
 import { supabase } from "./supabase-client"
 
@@ -11,6 +20,7 @@ const STORAGE_KEYS = {
   REST_SETTINGS: "gym_tracker_rest_settings",
   REMINDER_LAST_SENT: "gym_tracker_reminder_last_sent",
   WEEKLY_RESET: "gym_tracker_weekly_reset",
+  EXERCISE_NOTES: "gym_tracker_exercise_notes",
 }
 
 const USER_ID_KEY = "gym_tracker_user_id"
@@ -23,6 +33,7 @@ const SYNC_MANAGED_KEYS = new Set<string>([
   STORAGE_KEYS.PHOTOS,
   STORAGE_KEYS.REMINDERS,
   STORAGE_KEYS.REST_SETTINGS,
+  STORAGE_KEYS.EXERCISE_NOTES,
 ])
 const SYNC_EXCLUDED_KEYS = new Set<string>([USER_ID_KEY, SYNC_STATE_KEY])
 let currentUserId: string | null = null
@@ -222,6 +233,35 @@ export const storageService = {
       return remote
     }
     return storageService.getVideos()
+  },
+
+  // Exercise notes
+  getExerciseNotes: (): ExerciseNote[] => {
+    if (typeof window === "undefined") return []
+    const data = localStorage.getItem(STORAGE_KEYS.EXERCISE_NOTES)
+    return data ? (JSON.parse(data) as ExerciseNote[]) : []
+  },
+
+  saveExerciseNotes: (notes: ExerciseNote[], options: SaveOptions = {}) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.EXERCISE_NOTES, JSON.stringify(notes))
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.EXERCISE_NOTES, notes)
+    }
+  },
+
+  addExerciseNote: (note: ExerciseNote) => {
+    const notes = storageService.getExerciseNotes()
+    notes.push(note)
+    storageService.saveExerciseNotes(notes)
+  },
+
+  getLastExerciseNote: (exerciseName: string): ExerciseNote | null => {
+    const notes = storageService.getExerciseNotes()
+    const filtered = notes
+      .filter((entry) => entry.exerciseName === exerciseName)
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+    return filtered[0] ?? null
   },
 
   // Photos

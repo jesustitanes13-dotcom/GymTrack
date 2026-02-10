@@ -6,34 +6,88 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { storageService } from "@/lib/storage"
-import type { ProgressPhoto } from "@/lib/types"
+import type { ProgressPhoto, WorkoutLog } from "@/lib/types"
 import { formatMonthLabel } from "@/lib/workout-utils"
 import { Camera, ImagePlus } from "lucide-react"
 
 export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [entries, setEntries] = useState<ProgressPhoto[]>([])
+  const [logs, setLogs] = useState<WorkoutLog[]>([])
   const [selectedMonth, setSelectedMonth] = useState(getCurrentMonthKey())
+  const [compareMonth, setCompareMonth] = useState<string | null>(null)
   const [frontPreview, setFrontPreview] = useState("")
   const [sidePreview, setSidePreview] = useState("")
 
   useEffect(() => {
     setEntries(storageService.getPhotos())
     void storageService.fetchPhotos().then(setEntries)
+    setLogs(storageService.getLogs())
+    void storageService.fetchLogs().then(setLogs)
   }, [syncVersion])
 
   const monthOptions = useMemo(() => {
-    const all = new Set([getCurrentMonthKey(), ...entries.map((entry) => entry.month)])
+    const logMonths = logs.map((log) => log.date.slice(0, 7))
+    const all = new Set([getCurrentMonthKey(), ...entries.map((entry) => entry.month), ...logMonths])
     return Array.from(all).sort().reverse()
-  }, [entries])
+  }, [entries, logs])
 
   const currentEntry = entries.find((entry) => entry.month === selectedMonth)
-  const previousMonthKey = getPreviousMonthKey(selectedMonth)
-  const previousEntry = entries.find((entry) => entry.month === previousMonthKey)
+  const compareEntry = entries.find((entry) => entry.month === compareMonth)
 
   useEffect(() => {
     setFrontPreview(currentEntry?.frontUrl || "")
     setSidePreview(currentEntry?.sideUrl || "")
   }, [selectedMonth, currentEntry])
+
+  useEffect(() => {
+    if (!compareMonth || compareMonth === selectedMonth) {
+      const fallback = getPreviousMonthKey(selectedMonth) || selectedMonth
+      setCompareMonth(fallback)
+    }
+  }, [selectedMonth, compareMonth])
+
+  const mainExercises = useMemo(() => {
+    const map = new Map<string, number>()
+    logs.forEach((log) => {
+      const current = map.get(log.exerciseName)
+      if (!current || log.weight > current) {
+        map.set(log.exerciseName, log.weight)
+      }
+    })
+    return Array.from(map.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([exercise]) => exercise)
+  }, [logs])
+
+  const strengthComparison = useMemo(() => {
+    if (!compareMonth) return []
+    const fromMap = new Map<string, number>()
+    const toMap = new Map<string, number>()
+
+    logs.forEach((log) => {
+      const monthKey = log.date.slice(0, 7)
+      if (monthKey === selectedMonth) {
+        const current = fromMap.get(log.exerciseName) ?? 0
+        if (log.weight > current) fromMap.set(log.exerciseName, log.weight)
+      }
+      if (monthKey === compareMonth) {
+        const current = toMap.get(log.exerciseName) ?? 0
+        if (log.weight > current) toMap.set(log.exerciseName, log.weight)
+      }
+    })
+
+    return mainExercises.map((exercise) => {
+      const from = fromMap.get(exercise) ?? 0
+      const to = toMap.get(exercise) ?? 0
+      return {
+        exercise,
+        from,
+        to,
+        delta: to - from,
+      }
+    })
+  }, [logs, selectedMonth, compareMonth, mainExercises])
 
   const handleUpload = (file: File, setter: (value: string) => void) => {
     const reader = new FileReader()
@@ -94,6 +148,21 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Comparar con</label>
+              <Select value={compareMonth ?? ""} onValueChange={setCompareMonth}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona otro mes" />
+                </SelectTrigger>
+                <SelectContent>
+                  {monthOptions.map((month) => (
+                    <SelectItem key={month} value={month}>
+                      {formatMonthLabel(new Date(`${month}-01T00:00:00`))}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -121,23 +190,50 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
             <ImagePlus className="h-5 w-5 text-primary" />
             Comparativa mensual
           </CardTitle>
-          <CardDescription>Compara este mes con el anterior</CardDescription>
+          <CardDescription>Compara dos meses de tu progreso visual</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-6 lg:grid-cols-2">
             <ComparisonPanel
-              title="Mes actual"
+              title="Mes principal"
               monthLabel={formatMonthLabel(new Date(`${selectedMonth}-01T00:00:00`))}
               front={currentEntry?.frontUrl}
               side={currentEntry?.sideUrl}
             />
             <ComparisonPanel
-              title="Mes anterior"
-              monthLabel={previousMonthKey ? formatMonthLabel(new Date(`${previousMonthKey}-01T00:00:00`)) : "Sin datos"}
-              front={previousEntry?.frontUrl}
-              side={previousEntry?.sideUrl}
+              title="Mes comparado"
+              monthLabel={compareMonth ? formatMonthLabel(new Date(`${compareMonth}-01T00:00:00`)) : "Sin datos"}
+              front={compareEntry?.frontUrl}
+              side={compareEntry?.sideUrl}
             />
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Comparativa de fuerza</CardTitle>
+          <CardDescription>Variación de tus ejercicios principales entre los meses elegidos</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {strengthComparison.length === 0 ? (
+            <p className="text-sm text-muted-foreground">No hay datos suficientes para comparar fuerza.</p>
+          ) : (
+            strengthComparison.map((item) => (
+              <div key={item.exercise} className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-medium">{item.exercise}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {item.from} kg → {item.to} kg
+                  </p>
+                </div>
+                <span className={item.delta >= 0 ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>
+                  {item.delta >= 0 ? "+" : ""}
+                  {item.delta} kg
+                </span>
+              </div>
+            ))
+          )}
         </CardContent>
       </Card>
     </div>
