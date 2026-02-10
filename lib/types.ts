@@ -79,3 +79,10 @@ export interface AiProgressionResult {
   nextMonthPrediction: number | null
   confidence: "baja" | "media" | "alta"
 }
+
+export interface ExerciseNote {
+  id: string
+  exerciseName: string
+  date: string
+  note: string
+}

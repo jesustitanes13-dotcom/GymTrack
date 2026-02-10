@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,7 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { storageService } from "@/lib/storage"
-import { MUSCLE_GROUPS, type Exercise, type Routine } from "@/lib/types"
+import { MUSCLE_GROUPS, type Exercise, type ExerciseNote, type Routine } from "@/lib/types"
 import { ArrowLeft, Plus, Save, Edit3, GripVertical, Trash2, Play } from "lucide-react"
 import { cn } from "@/lib/utils"
 import VideoModal from "./video-modal"
@@ -28,6 +28,12 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
   const [isEditMode, setIsEditMode] = useState(false)
   const [selectedVideo, setSelectedVideo] = useState<string | null>(null)
   const [draggedIndex, setDraggedIndex] = useState<number | null>(null)
+  const [notes, setNotes] = useState<ExerciseNote[]>([])
+  const [noteDrafts, setNoteDrafts] = useState<Record<string, string>>({})
+  const [prNotice, setPrNotice] = useState<{ exercise: string; weight: number } | null>(null)
+  const [confettiPieces, setConfettiPieces] = useState<
+    { id: number; left: number; delay: number; size: number; duration: number; color: string }[]
+  >([])
 
   useEffect(() => {
     if (selectedDay) {
@@ -46,6 +52,32 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
       void storageService.fetchRoutines().then(updateRoutine)
     }
   }, [selectedDay, syncVersion])
+
+  useEffect(() => {
+    setNotes(storageService.getExerciseNotes())
+  }, [syncVersion])
+
+  const lastNoteByExercise = useMemo(() => {
+    const map = new Map<string, ExerciseNote>()
+    notes
+      .slice()
+      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+      .forEach((note) => {
+        if (!map.has(note.exerciseName)) {
+          map.set(note.exerciseName, note)
+        }
+      })
+    return map
+  }, [notes])
+
+  useEffect(() => {
+    if (!prNotice) return
+    const timeout = window.setTimeout(() => {
+      setPrNotice(null)
+      setConfettiPieces([])
+    }, 3500)
+    return () => window.clearTimeout(timeout)
+  }, [prNotice])
 
   const saveRoutine = () => {
     if (!routine) return
@@ -82,6 +114,8 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
   const saveLog = (index: number) => {
     if (!routine) return
     const exercise = routine.exercises[index]
+    const existingLogs = storageService.getLogs().filter((log) => log.exerciseName === exercise.name)
+    const previousMax = existingLogs.length ? Math.max(...existingLogs.map((log) => log.weight)) : 0
 
     storageService.addLog({
       exerciseId: exercise.id,
@@ -92,10 +126,37 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
       muscleGroup: exercise.muscleGroup,
     })
 
+    const draftNote = noteDrafts[exercise.id]?.trim()
+    if (draftNote) {
+      storageService.addExerciseNote({
+        id: `${exercise.id}-${Date.now()}`,
+        exerciseName: exercise.name,
+        date: new Date().toISOString(),
+        note: draftNote,
+      })
+      setNotes(storageService.getExerciseNotes())
+      setNoteDrafts((prev) => ({ ...prev, [exercise.id]: "" }))
+    }
+
     // Update previous weight
     const nextRoutine = updateExercise(index, "previousWeight", exercise.currentWeight)
     if (nextRoutine) {
       persistRoutine(nextRoutine)
+    }
+
+    if (exercise.currentWeight > previousMax) {
+      setPrNotice({ exercise: exercise.name, weight: exercise.currentWeight })
+      const colors = ["#22d3ee", "#4ade80", "#facc15", "#f472b6", "#a78bfa"]
+      setConfettiPieces(
+        Array.from({ length: 24 }, (_, idx) => ({
+          id: idx,
+          left: Math.random() * 100,
+          delay: Math.random() * 0.4,
+          size: 6 + Math.random() * 6,
+          duration: 2 + Math.random() * 1.5,
+          color: colors[idx % colors.length],
+        })),
+      )
     }
   }
 
@@ -162,6 +223,41 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
 
   return (
     <div className="space-y-4">
+      {prNotice && (
+        <>
+          <div className="fixed inset-0 z-50 pointer-events-none">
+            {confettiPieces.map((piece) => (
+              <span
+                key={piece.id}
+                className="absolute top-0 rounded-sm animate-confetti"
+                style={{
+                  left: `${piece.left}%`,
+                  width: `${piece.size}px`,
+                  height: `${piece.size * 1.4}px`,
+                  backgroundColor: piece.color,
+                  animationDelay: `${piece.delay}s`,
+                  animationDuration: `${piece.duration}s`,
+                }}
+              />
+            ))}
+          </div>
+          <div className="fixed inset-0 z-40 flex items-start justify-center pt-20 pointer-events-none">
+            <div className="bg-primary/90 text-primary-foreground px-6 py-3 rounded-full shadow-lg text-sm sm:text-base">
+              ¡NUEVO RÉCORD DETECTADO! {prNotice.exercise} - {prNotice.weight} kg
+            </div>
+          </div>
+          <style>{`
+            @keyframes confetti-fall {
+              0% { transform: translateY(-10px) rotate(0deg); opacity: 1; }
+              100% { transform: translateY(110vh) rotate(360deg); opacity: 0; }
+            }
+            .animate-confetti {
+              animation-name: confetti-fall;
+              animation-timing-function: ease-in;
+            }
+          `}</style>
+        </>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Button variant="ghost" size="icon" onClick={onBack}>
@@ -266,7 +362,7 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                             </Select>
                           </div>
                         ) : (
-                          <div className="space-y-1">
+                          <div className="space-y-2">
                             <div className="flex items-center gap-2">
                               {exercise.videoUrl && isVideoUrl(exercise.videoUrl) ? (
                                 <button
@@ -293,6 +389,21 @@ export default function RoutineView({ selectedDay, onBack, onRestStart, syncVers
                             <Badge variant="outline" className="text-xs">
                               {exercise.muscleGroup || "Otro"}
                             </Badge>
+                            <div className="space-y-1">
+                              {lastNoteByExercise.get(exercise.name) && (
+                                <p className="text-xs text-muted-foreground">
+                                  Nota anterior: {lastNoteByExercise.get(exercise.name)?.note}
+                                </p>
+                              )}
+                              <Input
+                                value={noteDrafts[exercise.id] ?? ""}
+                                onChange={(event) =>
+                                  setNoteDrafts((prev) => ({ ...prev, [exercise.id]: event.target.value }))
+                                }
+                                placeholder="Nota rápida (se guarda al hacer Log)"
+                                className="h-9 text-xs"
+                              />
+                            </div>
                           </div>
                         )}
                       </td>
