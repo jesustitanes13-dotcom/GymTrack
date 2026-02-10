@@ -4,6 +4,8 @@ import { useEffect } from "react"
 import { storageService } from "@/lib/storage"
 import { buildWeeklySummary, getDayKey, getWeekKey } from "@/lib/workout-utils"
 
+const SUMMARY_EMAIL = "jesustitanes13@gmail.com"
+
 export default function ReminderScheduler() {
   useEffect(() => {
     const interval = setInterval(() => {
@@ -42,10 +44,10 @@ export default function ReminderScheduler() {
         }
       }
 
-      if (now.getDay() === 0 && (settings.emailEnabled || settings.email)) {
+      if (now.getDay() === 0) {
         const weekKey = getWeekKey(now)
         if (storageService.getWeeklySummaryLastSent() !== weekKey) {
-          void sendWeeklySummary(settings.email || "jesustitanes13@gmail.com", now).then((result) => {
+          void sendWeeklySummary(SUMMARY_EMAIL, now).then((result) => {
             if (result.ok) {
               storageService.setWeeklySummaryLastSent(weekKey)
               if (settings.notifyInApp) {

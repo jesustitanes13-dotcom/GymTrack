@@ -8,6 +8,8 @@ import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { storageService } from "@/lib/storage"
 import { buildWeeklySummary } from "@/lib/workout-utils"
+
+const SUMMARY_EMAIL = "jesustitanes13@gmail.com"
 import type { ReminderSettings } from "@/lib/types"
 import { Bell, Mail } from "lucide-react"
 
@@ -51,7 +53,7 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        email: settings.email || "jesustitanes13@gmail.com",
+        email: SUMMARY_EMAIL,
         message,
         subject: "Resumen semanal de entrenamiento",
       }),
