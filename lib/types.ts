@@ -86,3 +86,10 @@ export interface ExerciseNote {
   date: string
   note: string
 }
+
+export interface BodyWeightEntry {
+  id: string
+  date: string
+  month: string
+  weight: number
+}

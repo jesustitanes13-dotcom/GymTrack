@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
 import { storageService } from "@/lib/storage"
+import { buildWeeklySummary } from "@/lib/workout-utils"
 import type { ReminderSettings } from "@/lib/types"
 import { Bell, Mail } from "lucide-react"
 
@@ -34,6 +35,27 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
     if (typeof window === "undefined" || !("Notification" in window)) return
     const result = await Notification.requestPermission()
     setPermission(result)
+  }
+
+  const sendWeeklySummary = async () => {
+    const logs = storageService.getLogs()
+    const summary = buildWeeklySummary(logs, new Date())
+    const message = [
+      `Resumen semanal (últimos 7 días):`,
+      `- Volumen total: ${summary.totalVolume.toLocaleString()} kg`,
+      `- Sesiones realizadas: ${summary.sessions}`,
+      `- Mayor progresión: ${summary.topExercise} (+${summary.topImprovement} kg)`,
+    ].join("\n")
+
+    await fetch("/api/reminders/send", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        email: settings.email || "jesustitanes13@gmail.com",
+        message,
+        subject: "Resumen semanal de entrenamiento",
+      }),
+    })
   }
 
   return (
@@ -140,6 +162,10 @@ export default function RemindersView({ syncVersion = 0 }: { syncVersion?: numbe
               className="h-11 text-base"
             />
           </div>
+
+          <Button type="button" className="w-full sm:w-auto h-11 px-5" onClick={sendWeeklySummary}>
+            Enviar resumen semanal (prueba)
+          </Button>
         </CardContent>
       </Card>
     </div>
