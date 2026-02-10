@@ -5,9 +5,11 @@ export async function POST(request: Request) {
     const body = await request.json()
     const email = body?.email as string
     const message = body?.message as string
+    const html = body?.html as string | undefined
+    const text = body?.text as string | undefined
     const subject = (body?.subject as string) || "Recordatorio de entrenamiento"
 
-    if (!email || !message) {
+    if (!email || (!message && !html)) {
       return NextResponse.json({ error: "Email y mensaje son requeridos." }, { status: 400 })
     }
 
@@ -17,6 +19,9 @@ export async function POST(request: Request) {
     }
 
     const from = process.env.RESEND_FROM_EMAIL || "FitTrack Pro <onboarding@resend.dev>"
+
+    const htmlContent = html || `<p>${message}</p>`
+    const textContent = text || message || ""
 
     const resendResponse = await fetch("https://api.resend.com/emails", {
       method: "POST",
@@ -28,8 +33,8 @@ export async function POST(request: Request) {
         from,
         to: email,
         subject,
-        html: `<p>${message}</p>`,
-        text: message,
+        html: htmlContent,
+        text: textContent,
       }),
     })
 
