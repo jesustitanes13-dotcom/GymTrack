@@ -9,6 +9,8 @@ import { storageService } from "@/lib/storage"
 import type { ProgressPhoto, WorkoutLog } from "@/lib/types"
 import { formatMonthLabel } from "@/lib/workout-utils"
 import { Camera, ImagePlus } from "lucide-react"
+import { Line, LineChart, XAxis, YAxis, CartesianGrid, ResponsiveContainer } from "recharts"
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 
 export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [entries, setEntries] = useState<ProgressPhoto[]>([])
@@ -17,12 +19,19 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
   const [compareMonth, setCompareMonth] = useState<string | null>(null)
   const [frontPreview, setFrontPreview] = useState("")
   const [sidePreview, setSidePreview] = useState("")
+  const [bodyWeights, setBodyWeights] = useState<{ month: string; weight: number }[]>([])
+  const [weightInput, setWeightInput] = useState("")
 
   useEffect(() => {
     setEntries(storageService.getPhotos())
     void storageService.fetchPhotos().then(setEntries)
     setLogs(storageService.getLogs())
     void storageService.fetchLogs().then(setLogs)
+    const weights = storageService.getBodyWeights()
+    setBodyWeights(weights.map((entry) => ({ month: entry.month, weight: entry.weight })))
+    void storageService.fetchBodyWeights().then((remote) => {
+      setBodyWeights(remote.map((entry) => ({ month: entry.month, weight: entry.weight })))
+    })
   }, [syncVersion])
 
   const monthOptions = useMemo(() => {
@@ -88,6 +97,27 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
       }
     })
   }, [logs, selectedMonth, compareMonth, mainExercises])
+
+  const weightChartData = useMemo(() => {
+    return [...bodyWeights].sort((a, b) => a.month.localeCompare(b.month))
+  }, [bodyWeights])
+
+  const handleSaveWeight = () => {
+    const parsed = Number.parseFloat(weightInput.replace(",", "."))
+    if (Number.isNaN(parsed)) return
+    const now = new Date()
+    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    const entry = {
+      id: `${monthKey}-${Date.now()}`,
+      date: now.toISOString(),
+      month: monthKey,
+      weight: parsed,
+    }
+    storageService.addBodyWeight(entry)
+    const next = storageService.getBodyWeights().map((item) => ({ month: item.month, weight: item.weight }))
+    setBodyWeights(next)
+    setWeightInput("")
+  }
 
   const handleUpload = (file: File, setter: (value: string) => void) => {
     const reader = new FileReader()
@@ -178,9 +208,24 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
             />
           </div>
 
-          <Button onClick={handleSave} disabled={!frontPreview || !sidePreview}>
+          <Button onClick={handleSave} disabled={!frontPreview || !sidePreview} className="h-11 px-5">
             Guardar fotos del mes
           </Button>
+
+          <div className="grid gap-3 sm:grid-cols-[1fr_auto] items-end">
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Registrar peso del mes</label>
+              <Input
+                placeholder="Ej: 80.5"
+                value={weightInput}
+                onChange={(event) => setWeightInput(event.target.value)}
+                className="h-11 text-base"
+              />
+            </div>
+            <Button type="button" className="h-11 px-5" onClick={handleSaveWeight}>
+              Registrar Peso del Mes
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
@@ -233,6 +278,63 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
                 </span>
               </div>
             ))
+          )}
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Evolución de peso corporal</CardTitle>
+          <CardDescription>Registro mensual de tu peso</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {weightChartData.length === 0 ? (
+            <p className="text-sm text-muted-foreground">Aún no registras peso corporal.</p>
+          ) : (
+            <ChartContainer
+              config={{
+                weight: {
+                  label: "Peso corporal",
+                  color: "#22d3ee",
+                },
+              }}
+              className="h-[240px] w-full rounded-lg bg-slate-950/40 p-2"
+            >
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={weightChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
+                  <XAxis
+                    dataKey="month"
+                    tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                    axisLine={{ stroke: "#94a3b8" }}
+                    tickLine={{ stroke: "#94a3b8" }}
+                    tickFormatter={(value) => String(value).split("-")[1]}
+                  />
+                  <YAxis
+                    tick={{ fill: "#e2e8f0", fontSize: 12 }}
+                    axisLine={{ stroke: "#94a3b8" }}
+                    tickLine={{ stroke: "#94a3b8" }}
+                  />
+                  <ChartTooltip
+                    content={
+                      <ChartTooltipContent
+                        className="bg-slate-900/95 text-slate-100 border-slate-700 text-sm"
+                        labelClassName="text-slate-100"
+                      />
+                    }
+                    formatter={(value: number) => [`${value} kg`, "Peso"]}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="weight"
+                    stroke="var(--color-weight)"
+                    strokeWidth={4}
+                    dot={{ fill: "var(--color-weight)", r: 5, stroke: "#f8fafc", strokeWidth: 2 }}
+                    activeDot={{ r: 8 }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </ChartContainer>
           )}
         </CardContent>
       </Card>

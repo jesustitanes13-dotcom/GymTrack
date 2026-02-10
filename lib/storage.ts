@@ -1,4 +1,5 @@
 import type {
+  BodyWeightEntry,
   ExerciseNote,
   MuscleGroup,
   ProgressPhoto,
@@ -16,10 +17,12 @@ const STORAGE_KEYS = {
   LOGS: "gym_tracker_logs",
   VIDEOS: "gym_tracker_videos",
   PHOTOS: "gym_tracker_photos",
+  BODY_WEIGHT: "gym_tracker_body_weight",
   REMINDERS: "gym_tracker_reminders",
   REST_SETTINGS: "gym_tracker_rest_settings",
   REMINDER_LAST_SENT: "gym_tracker_reminder_last_sent",
   WEEKLY_RESET: "gym_tracker_weekly_reset",
+  WEEKLY_SUMMARY_LAST_SENT: "gym_tracker_weekly_summary_last_sent",
   EXERCISE_NOTES: "gym_tracker_exercise_notes",
 }
 
@@ -31,6 +34,7 @@ const SYNC_MANAGED_KEYS = new Set<string>([
   STORAGE_KEYS.LOGS,
   STORAGE_KEYS.VIDEOS,
   STORAGE_KEYS.PHOTOS,
+  STORAGE_KEYS.BODY_WEIGHT,
   STORAGE_KEYS.REMINDERS,
   STORAGE_KEYS.REST_SETTINGS,
   STORAGE_KEYS.EXERCISE_NOTES,
@@ -70,6 +74,7 @@ export const storageService = {
       storageService.fetchLogs(),
       storageService.fetchVideos(),
       storageService.fetchPhotos(),
+      storageService.fetchBodyWeights(),
       storageService.fetchReminderSettings(),
       storageService.fetchRestSettings(),
     ])
@@ -299,6 +304,36 @@ export const storageService = {
     return storageService.getPhotos()
   },
 
+  // Body weight
+  getBodyWeights: (): BodyWeightEntry[] => {
+    if (typeof window === "undefined") return []
+    const data = localStorage.getItem(STORAGE_KEYS.BODY_WEIGHT)
+    return data ? (JSON.parse(data) as BodyWeightEntry[]) : []
+  },
+
+  saveBodyWeights: (weights: BodyWeightEntry[], options: SaveOptions = {}) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.BODY_WEIGHT, JSON.stringify(weights))
+    if (options.syncRemote !== false) {
+      void syncToSupabase(STORAGE_KEYS.BODY_WEIGHT, weights)
+    }
+  },
+
+  addBodyWeight: (entry: BodyWeightEntry) => {
+    const weights = storageService.getBodyWeights()
+    weights.push(entry)
+    storageService.saveBodyWeights(weights)
+  },
+
+  fetchBodyWeights: async (): Promise<BodyWeightEntry[]> => {
+    const remote = await fetchFromSupabase<BodyWeightEntry[]>(STORAGE_KEYS.BODY_WEIGHT)
+    if (remote) {
+      storageService.saveBodyWeights(remote, { syncRemote: false })
+      return remote
+    }
+    return storageService.getBodyWeights()
+  },
+
   // Reminders
   getReminderSettings: (): ReminderSettings => {
     if (typeof window === "undefined") return DEFAULT_REMINDER_SETTINGS
@@ -357,6 +392,16 @@ export const storageService = {
   setReminderLastSent: (dateKey: string) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.REMINDER_LAST_SENT, dateKey)
+  },
+
+  getWeeklySummaryLastSent: (): string | null => {
+    if (typeof window === "undefined") return null
+    return localStorage.getItem(STORAGE_KEYS.WEEKLY_SUMMARY_LAST_SENT)
+  },
+
+  setWeeklySummaryLastSent: (weekKey: string) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.WEEKLY_SUMMARY_LAST_SENT, weekKey)
   },
 }
 
