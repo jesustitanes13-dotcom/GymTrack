@@ -28,7 +28,8 @@ export default function ReminderScheduler() {
         if (lastSent !== dayKey) {
           const routines = storageService.getRoutines()
           const routine = routines.find((item) => item.day === capitalizedDay)
-          const { subject, html, text } = buildDailyReminderEmail(capitalizedDay, routine)
+          const logs = storageService.getLogs()
+          const { subject, html, text } = buildDailyReminderEmail(capitalizedDay, routine, logs)
 
           if (settings.notifyInApp) {
             sendLocalNotification(text)
@@ -126,7 +127,7 @@ async function sendEmailReminder({
   }
 }
 
-function buildDailyReminderEmail(dayName: string, routine?: Routine) {
+function buildDailyReminderEmail(dayName: string, routine: Routine | undefined, logs: WorkoutLog[]) {
   const schedule = getScheduleForDay(dayName)
   const exercises = routine?.exercises ?? []
   const muscles = Array.from(new Set(exercises.map((exercise) => exercise.muscleGroup).filter(Boolean)))
@@ -134,17 +135,31 @@ function buildDailyReminderEmail(dayName: string, routine?: Routine) {
   const exerciseList = exercises.length
     ? exercises.map((exercise) => `<li style="margin-bottom:6px;">${exercise.name}</li>`).join("")
     : "<li>Descanso activo</li>"
+  const mainExercise = exercises[0]?.name
+  const prWeight = mainExercise
+    ? Math.max(0, ...logs.filter((log) => log.exerciseName === mainExercise).map((log) => log.weight))
+    : 0
+  const prText = mainExercise
+    ? prWeight > 0
+      ? `Tu PR actual en ${mainExercise} es ${prWeight} kg.`
+      : `Tu PR actual en ${mainExercise} aún no está registrado.`
+    : "Aún no hay un ejercicio principal definido."
 
   const subject = `¡Hoy toca ${dayName}! - ${musclesLabel}`
-  const text = `Hoy es ${dayName}. Tu rutina es ${musclesLabel}. Horario: ${schedule}.`
+  const text = `¡A darlo todo! Hoy es ${dayName}. Tu rutina es ${musclesLabel}. Horario: ${schedule}. ${prText}`
 
   const html = `
   <div style="background:${BACKGROUND_COLOR};color:#f8fafc;padding:24px;font-family:Arial, sans-serif;">
     <h2 style="margin:0 0 8px 0;color:#f8fafc;">${subject}</h2>
+    <p style="margin:0 0 12px 0;color:${ACCENT_COLOR};font-weight:bold;">¡Vamos con todo! Hoy es tu momento.</p>
     <p style="margin:0 0 16px 0;color:#cbd5f5;">Hoy es ${dayName} y tu rutina es <strong>${musclesLabel}</strong>.</p>
     <div style="padding:12px 16px;border-radius:12px;background:#1e1e1e;margin-bottom:16px;">
       <p style="margin:0;color:#f8fafc;">Horario de sesión:</p>
       <p style="margin:4px 0 0 0;color:${ACCENT_COLOR};font-weight:bold;">${schedule}</p>
+    </div>
+    <div style="padding:12px 16px;border-radius:12px;background:#1e1e1e;margin-bottom:16px;">
+      <p style="margin:0;color:#cbd5f5;">Récord personal destacado</p>
+      <p style="margin:4px 0 0 0;color:#f8fafc;font-weight:bold;">${prText}</p>
     </div>
     <h3 style="margin:0 0 8px 0;color:#f8fafc;">Ejercicios de hoy</h3>
     <ul style="padding-left:16px;margin:0;color:#e2e8f0;">
@@ -198,7 +213,11 @@ function buildWeeklySummaryEmail(logs: WorkoutLog[], routines: Routine[], now: D
     </div>
     <h3 style="margin:20px 0 8px;color:#f8fafc;">Sobrecarga progresiva</h3>
     <ul style="padding-left:16px;margin:0;color:#e2e8f0;">
-      ${improvementList.length ? improvementList.map((item) => `<li>${item}</li>`).join("") : "<li>Sin cambios destacados esta semana.</li>"}
+      ${
+        improvementList.length
+          ? improvementList.map((item) => `<li style="color:#4ade80;">${item}</li>`).join("")
+          : "<li>Sin cambios destacados esta semana.</li>"
+      }
     </ul>
     <h3 style="margin:20px 0 8px;color:#f8fafc;">Cumplimiento</h3>
     <p style="margin:0 0 8px;color:#cbd5f5;">Completados: ${completed.join(", ") || "Ninguno"}</p>

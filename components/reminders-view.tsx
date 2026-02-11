@@ -209,7 +209,11 @@ function buildWeeklySummaryEmail(logs: WorkoutLog[], routines: Routine[], summar
       </div>
       <h3 style="margin:20px 0 8px;color:#f8fafc;">Sobrecarga progresiva</h3>
       <ul style="padding-left:16px;margin:0;color:#e2e8f0;">
-        ${improvements.length ? improvements.map((item) => `<li>${item}</li>`).join("") : "<li>Sin cambios destacados esta semana.</li>"}
+        ${
+          improvements.length
+            ? improvements.map((item) => `<li style="color:#4ade80;">${item}</li>`).join("")
+            : "<li>Sin cambios destacados esta semana.</li>"
+        }
       </ul>
       <h3 style="margin:20px 0 8px;color:#f8fafc;">Cumplimiento</h3>
       <p style="margin:0 0 8px;color:#cbd5f5;">Completados: ${completed.join(", ") || "Ninguno"}</p>
