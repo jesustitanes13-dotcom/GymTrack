@@ -46,28 +46,37 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
   }, [routines, logs])
 
   const exercisesByMuscle = useMemo(() => {
-    const map = new Map<MuscleGroup, string[]>()
+    const map = new Map<MuscleGroup, Set<string>>()
+    routines.forEach((routine) => {
+      routine.exercises.forEach((exercise) => {
+        const list = map.get(exercise.muscleGroup) ?? new Set<string>()
+        list.add(exercise.name)
+        map.set(exercise.muscleGroup, list)
+      })
+    })
     logs.forEach((log) => {
       if (!log.exerciseName) return
       const muscle = log.muscleGroup || exerciseToMuscle.get(log.exerciseName)
       if (!muscle) return
-      const list = map.get(muscle) ?? []
-      if (!list.includes(log.exerciseName)) {
-        list.push(log.exerciseName)
-      }
+      const list = map.get(muscle) ?? new Set<string>()
+      list.add(log.exerciseName)
       map.set(muscle, list)
     })
     return map
-  }, [logs, exerciseToMuscle])
+  }, [logs, routines, exerciseToMuscle])
 
-  const availableMuscles = useMemo(
-    () => MUSCLE_GROUPS.filter((muscle) => exercisesByMuscle.has(muscle)),
-    [exercisesByMuscle],
-  )
+  const availableMuscles = useMemo(() => {
+    const musclesFromRoutines = new Set<MuscleGroup>()
+    routines.forEach((routine) => {
+      routine.exercises.forEach((exercise) => musclesFromRoutines.add(exercise.muscleGroup))
+    })
+    return musclesFromRoutines.size ? Array.from(musclesFromRoutines) : MUSCLE_GROUPS
+  }, [routines])
 
   const exerciseOptions = useMemo(() => {
     if (!selectedMuscle) return []
-    return exercisesByMuscle.get(selectedMuscle) ?? []
+    const list = exercisesByMuscle.get(selectedMuscle)
+    return list ? Array.from(list) : []
   }, [exercisesByMuscle, selectedMuscle])
 
   useEffect(() => {
@@ -100,15 +109,34 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
   const monthlyStats = useMemo(() => buildMonthlyStats(exerciseLogs), [exerciseLogs])
 
   const chartData = useMemo(() => {
-    return monthlyStats.map((data) => ({
-      month: data.monthLabel,
-      maxWeight: data.maxWeight,
-    }))
+    if (monthlyStats.length > 0) {
+      return monthlyStats.map((data) => ({
+        month: data.monthLabel,
+        maxWeight: data.maxWeight,
+      }))
+    }
+    const fallbackMonths = Array.from({ length: 6 }, (_, index) => {
+      const date = new Date()
+      date.setMonth(date.getMonth() - (5 - index))
+      return {
+        month: date.toLocaleDateString("es-ES", { month: "short" }),
+        maxWeight: 0,
+      }
+    })
+    return fallbackMonths
   }, [monthlyStats])
 
   const stats = useMemo(() => {
     if (!selectedExercise) return null
-    if (exerciseLogs.length === 0) return null
+    if (exerciseLogs.length === 0) {
+      return {
+        totalSessions: 0,
+        maxWeight: 0,
+        avgWeight: 0,
+        improvement: 0,
+        improvementPercent: 0,
+      }
+    }
 
     const first = exerciseLogs[0]
     const last = exerciseLogs[exerciseLogs.length - 1]
@@ -149,12 +177,19 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
   }, [monthlyStats])
 
   const tableRows = useMemo(() => {
-    return monthlyStats.map((stat) => ({
-      month: stat.monthLabel,
-      maxWeight: stat.maxWeight,
-      avgWeight: Math.round(stat.avgWeight * 10) / 10,
+    if (monthlyStats.length > 0) {
+      return monthlyStats.map((stat) => ({
+        month: stat.monthLabel,
+        maxWeight: stat.maxWeight,
+        avgWeight: Math.round(stat.avgWeight * 10) / 10,
+      }))
+    }
+    return chartData.map((entry) => ({
+      month: entry.month,
+      maxWeight: 0,
+      avgWeight: 0,
     }))
-  }, [monthlyStats])
+  }, [monthlyStats, chartData])
 
   const personalRecords = useMemo(() => {
     const map = new Map<string, { weight: number; date: string }>()
@@ -218,7 +253,7 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
               <SelectContent>
                 {exerciseOptions.length === 0 ? (
                   <SelectItem value="none" disabled>
-                    Selecciona un músculo primero
+                    {selectedMuscle ? "Sin ejercicios para este músculo" : "Selecciona un músculo primero"}
                   </SelectItem>
                 ) : (
                   exerciseOptions.map((exercise) => (

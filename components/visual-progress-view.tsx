@@ -298,7 +298,7 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
                   color: "#22d3ee",
                 },
               }}
-              className="h-[240px] w-full rounded-lg bg-slate-950/40 p-2"
+              className="h-[240px] w-full rounded-lg bg-slate-900/20 p-2"
             >
               <ResponsiveContainer width="100%" height="100%">
                 <LineChart data={weightChartData} margin={{ top: 5, right: 20, left: 10, bottom: 5 }}>
@@ -329,8 +329,8 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
                     dataKey="weight"
                     stroke="var(--color-weight)"
                     strokeWidth={4}
-                    dot={{ fill: "var(--color-weight)", r: 5, stroke: "#f8fafc", strokeWidth: 2 }}
-                    activeDot={{ r: 8 }}
+                    dot={{ fill: "var(--color-weight)", r: 7, stroke: "#f8fafc", strokeWidth: 2 }}
+                    activeDot={{ r: 9 }}
                   />
                 </LineChart>
               </ResponsiveContainer>

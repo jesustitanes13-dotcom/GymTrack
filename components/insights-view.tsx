@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog"
 import { storageService } from "@/lib/storage"
 import { MUSCLE_GROUPS, type MuscleGroup, type Routine, type WorkoutLog } from "@/lib/types"
-import { calculateVolume, getDayKey } from "@/lib/workout-utils"
+import { getDayKey } from "@/lib/workout-utils"
 import {
   Bar,
   BarChart,
@@ -52,12 +52,11 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     return map
   }, [routines])
 
-  const volumeByMuscle = useMemo(() => {
+  const exerciseCountByMuscle = useMemo(() => {
     const totals = new Map<MuscleGroup, number>()
     logs.forEach((log) => {
       const group = log.muscleGroup || exerciseMap.get(log.exerciseName) || "Otro"
-      const volume = log.volume ?? calculateVolume(log.weight, log.setsReps)
-      totals.set(group, (totals.get(group) || 0) + volume)
+      totals.set(group, (totals.get(group) ?? 0) + 1)
     })
     return totals
   }, [logs, exerciseMap])
@@ -74,13 +73,13 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     return totals
   }, [logs, exerciseMap])
 
-  const volumeData = useMemo(
+  const exerciseCountData = useMemo(
     () =>
       MUSCLE_GROUPS.map((muscle) => ({
         muscle,
-        volume: Math.round(volumeByMuscle.get(muscle) ?? 0),
+        count: exerciseCountByMuscle.get(muscle) ?? 0,
       })),
-    [volumeByMuscle],
+    [exerciseCountByMuscle],
   )
 
   const frequencyData = useMemo(
@@ -92,9 +91,12 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     [frequencyByMuscle],
   )
 
-  const totalVolume = volumeData.reduce((sum, item) => sum + item.volume, 0)
+  const totalExercises = useMemo(() => {
+    const uniqueExercises = new Set(logs.map((log) => log.exerciseName))
+    uniqueExercises.delete("")
+    return uniqueExercises.size
+  }, [logs])
   const totalSessions = frequencyData.reduce((sum, item) => sum + item.sessions, 0)
-  const elephantEquivalent = totalVolume > 0 ? totalVolume / 5000 : 0
 
   const heatmapWeeks = useMemo(() => {
     if (logs.length === 0) return []
@@ -104,11 +106,10 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     const dayOfWeek = (start.getDay() + 6) % 7
     start.setDate(start.getDate() - dayOfWeek)
 
-    const volumeByDay = new Map<string, number>()
+    const activityByDay = new Map<string, number>()
     logs.forEach((log) => {
       const key = getDayKey(new Date(log.date))
-      const volume = log.volume ?? calculateVolume(log.weight, log.setsReps)
-      volumeByDay.set(key, (volumeByDay.get(key) ?? 0) + volume)
+      activityByDay.set(key, (activityByDay.get(key) ?? 0) + 1)
     })
 
     const weeks: { date: Date; volume: number }[][] = []
@@ -117,13 +118,21 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
       const days: { date: Date; volume: number }[] = []
       for (let day = 0; day < 7; day += 1) {
         const key = getDayKey(cursor)
-        days.push({ date: new Date(cursor), volume: volumeByDay.get(key) ?? 0 })
+        days.push({ date: new Date(cursor), volume: activityByDay.get(key) ?? 0 })
         cursor.setDate(cursor.getDate() + 1)
       }
       weeks.push(days)
     }
     return weeks
   }, [logs])
+
+  const routineByDayName = useMemo(() => {
+    const map = new Map<string, string>()
+    routines.forEach((routine) => {
+      map.set(routine.day, routine.label || routine.day)
+    })
+    return map
+  }, [routines])
 
   const heatmapMax = useMemo(() => {
     let max = 0
@@ -153,9 +162,9 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     () =>
       MUSCLE_GROUPS.map((muscle) => ({
         muscle,
-        volume: Math.round(volumeByMuscle.get(muscle) ?? 0),
+        count: exerciseCountByMuscle.get(muscle) ?? 0,
       })),
-    [volumeByMuscle],
+    [exerciseCountByMuscle],
   )
 
   const lowEffortMuscles = useMemo(() => {
@@ -166,14 +175,13 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
       const monthKey = log.date ? log.date.slice(0, 7) : ""
       if (monthKey !== currentMonthKey) return
       const group = log.muscleGroup || exerciseMap.get(log.exerciseName) || "Otro"
-      const volume = log.volume ?? calculateVolume(log.weight, log.setsReps)
-      totals.set(group, (totals.get(group) ?? 0) + volume)
+      totals.set(group, (totals.get(group) ?? 0) + 1)
     })
     return MUSCLE_GROUPS.map((muscle) => ({
       muscle,
-      volume: totals.get(muscle) ?? 0,
+      count: totals.get(muscle) ?? 0,
     }))
-      .sort((a, b) => a.volume - b.volume)
+      .sort((a, b) => a.count - b.count)
       .slice(0, 3)
   }, [logs, exerciseMap])
 
@@ -199,7 +207,7 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     <div className="space-y-6">
       <div>
         <h2 className="text-3xl font-bold mb-2 text-balance">Insights</h2>
-        <p className="text-muted-foreground">Resumen del volumen levantado y frecuencia por músculo</p>
+        <p className="text-muted-foreground">Resumen del número de ejercicios y consistencia semanal</p>
       </div>
 
       {logs.length === 0 ? (
@@ -215,12 +223,12 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
               <CardContent className="p-6">
                 <div className="flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-sm text-muted-foreground">Resumen de carga</p>
+                    <p className="text-sm text-muted-foreground">Ejercicios realizados</p>
                     <p className="text-2xl sm:text-3xl font-bold">
-                      ¡Increíble! Has levantado {totalVolume.toLocaleString()} kg
+                      Has completado {totalExercises} ejercicios distintos.
                     </p>
                     <p className="text-xs text-muted-foreground mt-2">
-                      Eso equivale a {elephantEquivalent.toFixed(1)} elefantes adultos.
+                      Cuenta total de ejercicios registrados en tu historial.
                     </p>
                   </div>
                   <div className="h-12 w-12 rounded-full bg-primary/10 flex items-center justify-center">
@@ -298,21 +306,21 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
           <div className="grid gap-6 lg:grid-cols-2">
             <Card>
               <CardHeader>
-                <CardTitle>Volumen por músculo</CardTitle>
-                <CardDescription>Total levantado por grupo muscular</CardDescription>
+                <CardTitle>Ejercicios por músculo</CardTitle>
+                <CardDescription>Número de ejercicios realizados por grupo muscular</CardDescription>
               </CardHeader>
               <CardContent>
                 <ChartContainer
                   config={{
-                    volume: {
-                      label: "Volumen",
+                    count: {
+                      label: "Ejercicios",
                       color: "#22d3ee",
                     },
                   }}
                   className="h-[320px] rounded-lg bg-slate-950/40 p-2"
                 >
                   <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={volumeData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+                    <BarChart data={exerciseCountData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.35)" />
                       <XAxis
                         dataKey="muscle"
@@ -337,9 +345,9 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                           />
                         }
                         cursor={{ fill: "rgba(148,163,184,0.15)" }}
-                        formatter={(value: number) => [`${value} kg`, "Volumen"]}
+                        formatter={(value: number) => [`${value}`, "Ejercicios"]}
                       />
-                      <Bar dataKey="volume" fill="var(--color-volume)" radius={[6, 6, 0, 0]} />
+                      <Bar dataKey="count" fill="var(--color-count)" radius={[6, 6, 0, 0]} />
                     </BarChart>
                   </ResponsiveContainer>
                 </ChartContainer>
@@ -354,8 +362,8 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
               <CardContent>
                 <ChartContainer
                   config={{
-                    volume: {
-                      label: "Volumen",
+                    count: {
+                      label: "Ejercicios",
                       color: "#a855f7",
                     },
                   }}
@@ -373,12 +381,12 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                             labelClassName="text-slate-100"
                           />
                         }
-                        formatter={(value: number) => [`${value} kg`, "Volumen"]}
+                        formatter={(value: number) => [`${value}`, "Ejercicios"]}
                       />
                       <Radar
-                        dataKey="volume"
-                        stroke="var(--color-volume)"
-                        fill="var(--color-volume)"
+                        dataKey="count"
+                        stroke="var(--color-count)"
+                        fill="var(--color-count)"
                         fillOpacity={0.35}
                       />
                     </RadarChart>
@@ -392,7 +400,7 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
             <Card>
               <CardHeader>
                 <CardTitle>Calendario de consistencia</CardTitle>
-                <CardDescription>Días entrenados con más volumen = más verde</CardDescription>
+                <CardDescription>Días entrenados con más actividad = más verde</CardDescription>
               </CardHeader>
               <CardContent>
                 <div className="flex gap-2 overflow-x-auto">
@@ -408,10 +416,14 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                               : intensity > 0.33
                                 ? "bg-emerald-500/80"
                                 : "bg-emerald-700/70"
+                        const dayName = day.date.toLocaleDateString("es-ES", { weekday: "long" })
+                        const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1)
+                        const routineName = routineByDayName.get(capitalizedDay) || "Sin rutina"
+                        const label = day.volume > 0 ? `Rutina: ${routineName}` : "Sin entrenamiento"
                         return (
                           <div
                             key={day.date.toISOString()}
-                            title={`${day.date.toLocaleDateString("es-ES")}: ${Math.round(day.volume)} kg`}
+                            title={`${day.date.toLocaleDateString("es-ES")}: ${label}`}
                             className={`h-4 w-4 rounded ${color}`}
                           />
                         )
@@ -442,7 +454,7 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
                       <Trophy className="h-4 w-4 text-amber-400" />
                       <span className="text-sm">{item.muscle}</span>
                     </div>
-                    <span className="text-sm text-muted-foreground">{Math.round(item.volume)} kg</span>
+                    <span className="text-sm text-muted-foreground">{item.count} ejercicios</span>
                   </div>
                 ))}
               </CardContent>
