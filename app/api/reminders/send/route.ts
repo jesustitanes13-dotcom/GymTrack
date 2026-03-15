@@ -2,7 +2,11 @@ import { NextResponse } from "next/server"
 
 export async function POST(request: Request) {
   try {
-    const body = await request.json()
+    const body = await request.json().catch(() => null)
+    if (!body) {
+      console.error("[reminders.send] Payload inválido o JSON malformado.")
+      return NextResponse.json({ error: "Payload inválido." }, { status: 400 })
+    }
     const email = body?.email as string
     const message = body?.message as string
     const html = body?.html as string | undefined
@@ -36,21 +40,37 @@ export async function POST(request: Request) {
         html: htmlContent,
         text: textContent,
       }),
+    }).catch((error) => {
+      console.error("[reminders.send] Error en fetch a Resend:", error)
+      return null
     })
+
+    if (!resendResponse) {
+      return NextResponse.json({ error: "Error de red al contactar Resend." }, { status: 502 })
+    }
 
     if (!resendResponse.ok) {
       let details = "No se pudo enviar el email."
+      let raw = ""
       try {
-        const data = await resendResponse.json()
+        raw = await resendResponse.text()
+        const data = raw ? JSON.parse(raw) : null
         if (data?.message) details = data.message
       } catch {
         // ignore parse errors
       }
+      console.error("[reminders.send] Error Resend:", {
+        status: resendResponse.status,
+        statusText: resendResponse.statusText,
+        details,
+        raw,
+      })
       return NextResponse.json({ error: details }, { status: 500 })
     }
 
     return NextResponse.json({ ok: true })
-  } catch {
+  } catch (error) {
+    console.error("[reminders.send] Error inesperado:", error)
     return NextResponse.json({ error: "Error interno." }, { status: 500 })
   }
 }

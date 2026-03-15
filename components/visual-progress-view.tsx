@@ -21,6 +21,7 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
   const [sidePreview, setSidePreview] = useState("")
   const [bodyWeights, setBodyWeights] = useState<{ month: string; weight: number }[]>([])
   const [weightInput, setWeightInput] = useState("")
+  const [summaryYearValue, setSummaryYearValue] = useState(String(new Date().getFullYear()))
 
   useEffect(() => {
     setEntries(storageService.getPhotos())
@@ -40,6 +41,13 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
     return Array.from(all).sort().reverse()
   }, [entries, logs])
 
+  const availableYears = useMemo(() => {
+    const years = new Set<string>()
+    monthOptions.forEach((month) => years.add(month.slice(0, 4)))
+    years.add(String(new Date().getFullYear()))
+    return Array.from(years).sort((a, b) => b.localeCompare(a))
+  }, [monthOptions])
+
   const currentEntry = entries.find((entry) => entry.month === selectedMonth)
   const compareEntry = entries.find((entry) => entry.month === compareMonth)
 
@@ -54,6 +62,17 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
       setCompareMonth(fallback)
     }
   }, [selectedMonth, compareMonth])
+
+  useEffect(() => {
+    const selectedYear = selectedMonth.split("-")[0]
+    if (selectedYear && availableYears.includes(selectedYear)) {
+      setSummaryYearValue(selectedYear)
+      return
+    }
+    if (!availableYears.includes(summaryYearValue) && availableYears.length > 0) {
+      setSummaryYearValue(availableYears[0])
+    }
+  }, [selectedMonth, availableYears, summaryYearValue])
 
   const mainExercises = useMemo(() => {
     const map = new Map<string, number>()
@@ -106,16 +125,19 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
     const parsed = Number.parseFloat(weightInput.replace(",", "."))
     if (Number.isNaN(parsed)) return
     const now = new Date()
-    const monthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-    const entry = {
+    const monthKey = selectedMonth || getCurrentMonthKey()
+    const existing = storageService.getBodyWeights()
+    const nextEntry = {
       id: `${monthKey}-${Date.now()}`,
       date: now.toISOString(),
       month: monthKey,
       weight: parsed,
     }
-    storageService.addBodyWeight(entry)
-    const next = storageService.getBodyWeights().map((item) => ({ month: item.month, weight: item.weight }))
-    setBodyWeights(next)
+    const updated = existing.some((item) => item.month === monthKey)
+      ? existing.map((item) => (item.month === monthKey ? { ...item, weight: parsed, date: now.toISOString() } : item))
+      : [...existing, nextEntry]
+    storageService.saveBodyWeights(updated)
+    setBodyWeights(updated.map((item) => ({ month: item.month, weight: item.weight })))
     setWeightInput("")
   }
 
@@ -145,6 +167,27 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
       return [...prev, entry]
     })
   }
+
+  const summaryYear = useMemo(() => {
+    const fallbackYear = new Date().getFullYear()
+    const parsed = Number.parseInt(summaryYearValue, 10)
+    const targetYear = Number.isNaN(parsed) ? fallbackYear : parsed
+    return {
+      year: targetYear,
+      months: Array.from({ length: 12 }, (_, index) => {
+        const date = new Date(targetYear, index, 1)
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`
+      }),
+    }
+  }, [summaryYearValue])
+
+  const weightByMonth = useMemo(() => {
+    const map = new Map<string, number>()
+    bodyWeights.forEach((entry) => {
+      map.set(entry.month, entry.weight)
+    })
+    return map
+  }, [bodyWeights])
 
   return (
     <div className="space-y-6">
@@ -251,6 +294,63 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
               front={compareEntry?.frontUrl}
               side={compareEntry?.sideUrl}
             />
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <CardTitle>Resumen del Año {summaryYear.year}</CardTitle>
+              <CardDescription>Vista mensual de tus fotos con el peso registrado</CardDescription>
+            </div>
+            <div className="min-w-[160px]">
+              <Select value={summaryYearValue} onValueChange={setSummaryYearValue}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Año" />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYears.map((year) => (
+                    <SelectItem key={year} value={year}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {summaryYear.months.map((monthKey) => {
+              const entry = entries.find((item) => item.month === monthKey)
+              const weight = weightByMonth.get(monthKey)
+              return (
+                <div key={monthKey} className="space-y-2 rounded-lg border border-border bg-muted/20 p-3">
+                  <p className="text-sm font-medium">{formatMonthLabel(new Date(`${monthKey}-01T00:00:00`))}</p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="rounded-md border border-border bg-muted/40 overflow-hidden aspect-[3/4] flex items-center justify-center">
+                      {entry?.frontUrl ? (
+                        <img src={entry.frontUrl} alt={`Frontal ${monthKey}`} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Sin foto</span>
+                      )}
+                    </div>
+                    <div className="rounded-md border border-border bg-muted/40 overflow-hidden aspect-[3/4] flex items-center justify-center">
+                      {entry?.sideUrl ? (
+                        <img src={entry.sideUrl} alt={`Lateral ${monthKey}`} className="h-full w-full object-contain" />
+                      ) : (
+                        <span className="text-xs text-muted-foreground">Sin foto</span>
+                      )}
+                    </div>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                    {weight !== undefined ? `Peso: ${weight} kg` : "Peso: —"}
+                  </p>
+                </div>
+              )
+            })}
           </div>
         </CardContent>
       </Card>
@@ -364,6 +464,7 @@ function PhotoUpload({
         onChange={(event) => {
           const file = event.target.files?.[0]
           if (file) onChange(file)
+          event.currentTarget.value = ""
         }}
       />
     </div>

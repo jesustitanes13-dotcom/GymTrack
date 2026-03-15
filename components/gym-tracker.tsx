@@ -10,24 +10,15 @@ import VideosView from "./videos-view"
 import InsightsView from "./insights-view"
 import VisualProgressView from "./visual-progress-view"
 import RemindersView from "./reminders-view"
-import RestTimer from "./rest-timer"
 import ReminderScheduler from "./reminder-scheduler"
 import SupabaseAuth from "./supabase-auth"
 import { storageService } from "@/lib/storage"
-import type { RestSettings } from "@/lib/types"
 
 export default function GymTracker() {
   const [selectedDay, setSelectedDay] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState("calendar")
-  const [restSettings, setRestSettings] = useState<RestSettings>(storageService.getRestSettings())
-  const [restStartSignal, setRestStartSignal] = useState(0)
   const [syncVersion, setSyncVersion] = useState(0)
   const [userId, setUserId] = useState<string | null>(storageService.getUserId())
-
-  useEffect(() => {
-    setRestSettings(storageService.getRestSettings())
-    void storageService.fetchRestSettings().then(setRestSettings)
-  }, [])
 
   useEffect(() => {
     const checkWeeklyReset = () => {
@@ -73,10 +64,6 @@ export default function GymTracker() {
     return () => clearInterval(interval)
   }, [userId])
 
-  useEffect(() => {
-    setRestSettings(storageService.getRestSettings())
-  }, [syncVersion])
-
   const handleDaySelect = (day: string) => {
     setSelectedDay(day)
     setActiveTab("routine")
@@ -85,15 +72,6 @@ export default function GymTracker() {
   const handleBackToCalendar = () => {
     setSelectedDay(null)
     setActiveTab("calendar")
-  }
-
-  const handleRestStart = () => {
-    setRestStartSignal((prev) => prev + 1)
-  }
-
-  const handleRestSettingsChange = (settings: RestSettings) => {
-    setRestSettings(settings)
-    storageService.saveRestSettings(settings)
   }
 
   return (
@@ -172,19 +150,13 @@ export default function GymTracker() {
         </div>
 
         <div className="container max-w-7xl mx-auto px-4 py-6">
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]">
-            <div className="space-y-6 order-last lg:order-first">
+          <div className="space-y-6">
               <TabsContent value="calendar" className="mt-0">
                 <WeekCalendar onDaySelect={handleDaySelect} syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="routine" className="mt-0">
-                <RoutineView
-                  selectedDay={selectedDay}
-                  onBack={handleBackToCalendar}
-                  onRestStart={handleRestStart}
-                  syncVersion={syncVersion}
-                />
+                <RoutineView selectedDay={selectedDay} onBack={handleBackToCalendar} syncVersion={syncVersion} />
               </TabsContent>
 
               <TabsContent value="progress" className="mt-0">
@@ -206,10 +178,6 @@ export default function GymTracker() {
               <TabsContent value="videos" className="mt-0">
                 <VideosView syncVersion={syncVersion} />
               </TabsContent>
-            </div>
-            <div className="order-first lg:order-last lg:sticky lg:top-28 h-fit">
-              <RestTimer settings={restSettings} onSettingsChange={handleRestSettingsChange} startSignal={restStartSignal} />
-            </div>
           </div>
         </div>
       </Tabs>

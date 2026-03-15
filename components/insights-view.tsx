@@ -29,7 +29,7 @@ import {
   Tooltip,
 } from "recharts"
 import { ChartContainer, ChartTooltipContent } from "@/components/ui/chart"
-import { BarChart3, Dumbbell, Flame, Trophy } from "lucide-react"
+import { BarChart3, Dumbbell, Flame } from "lucide-react"
 
 export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
@@ -55,6 +55,7 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
   const exerciseCountByMuscle = useMemo(() => {
     const totals = new Map<MuscleGroup, number>()
     logs.forEach((log) => {
+      if (!log.exerciseName) return
       const group = log.muscleGroup || exerciseMap.get(log.exerciseName) || "Otro"
       totals.set(group, (totals.get(group) ?? 0) + 1)
     })
@@ -167,23 +168,14 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
     [exerciseCountByMuscle],
   )
 
-  const lowEffortMuscles = useMemo(() => {
-    const now = new Date()
-    const currentMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
-    const totals = new Map<MuscleGroup, number>()
-    logs.forEach((log) => {
-      const monthKey = log.date ? log.date.slice(0, 7) : ""
-      if (monthKey !== currentMonthKey) return
-      const group = log.muscleGroup || exerciseMap.get(log.exerciseName) || "Otro"
-      totals.set(group, (totals.get(group) ?? 0) + 1)
-    })
-    return MUSCLE_GROUPS.map((muscle) => ({
-      muscle,
-      count: totals.get(muscle) ?? 0,
-    }))
-      .sort((a, b) => a.count - b.count)
-      .slice(0, 3)
-  }, [logs, exerciseMap])
+  const muscleTableRows = useMemo(
+    () =>
+      MUSCLE_GROUPS.map((muscle) => ({
+        muscle,
+        count: exerciseCountByMuscle.get(muscle) ?? 0,
+      })).sort((a, b) => b.count - a.count),
+    [exerciseCountByMuscle],
+  )
 
   const sessionRows = useMemo(() => {
     return [...logs]
@@ -444,19 +436,26 @@ export default function InsightsView({ syncVersion = 0 }: { syncVersion?: number
 
             <Card>
               <CardHeader>
-                <CardTitle>Semáforo de esfuerzo</CardTitle>
-                <CardDescription>Los músculos menos trabajados este mes</CardDescription>
+                <CardTitle>Tabla de músculos</CardTitle>
+                <CardDescription>Conteo exacto de ejercicios por grupo muscular</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-3">
-                {lowEffortMuscles.map((item) => (
-                  <div key={item.muscle} className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Trophy className="h-4 w-4 text-amber-400" />
-                      <span className="text-sm">{item.muscle}</span>
-                    </div>
-                    <span className="text-sm text-muted-foreground">{item.count} ejercicios</span>
-                  </div>
-                ))}
+              <CardContent>
+                <Table className="border border-border/70 rounded-lg overflow-hidden">
+                  <TableHeader className="bg-muted/60">
+                    <TableRow className="hover:bg-muted/60">
+                      <TableHead className="text-foreground">Grupo muscular</TableHead>
+                      <TableHead className="text-foreground text-right">Ejercicios</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {muscleTableRows.map((row) => (
+                      <TableRow key={row.muscle} className="hover:bg-muted/30">
+                        <TableCell className="font-medium text-foreground">{row.muscle}</TableCell>
+                        <TableCell className="text-foreground text-right">{row.count}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
               </CardContent>
             </Card>
           </div>

@@ -11,7 +11,7 @@ import { Line, LineChart, XAxis, YAxis, CartesianGrid, Legend, ResponsiveContain
 import { ChartContainer, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart"
 import { TrendingUp, TrendingDown, Minus } from "lucide-react"
 import { buildMonthlyStats } from "@/lib/progression-utils"
-import { parseSetsReps } from "@/lib/workout-utils"
+import { formatMonthLabel, getMonthKey, parseSetsReps } from "@/lib/workout-utils"
 
 export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number }) {
   const [logs, setLogs] = useState<WorkoutLog[]>([])
@@ -108,23 +108,32 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
 
   const monthlyStats = useMemo(() => buildMonthlyStats(exerciseLogs), [exerciseLogs])
 
-  const chartData = useMemo(() => {
-    if (monthlyStats.length > 0) {
-      return monthlyStats.map((data) => ({
-        month: data.monthLabel,
-        maxWeight: data.maxWeight,
-      }))
-    }
-    const fallbackMonths = Array.from({ length: 6 }, (_, index) => {
-      const date = new Date()
-      date.setMonth(date.getMonth() - (5 - index))
+  const fullYearMonths = useMemo(() => {
+    const fallbackYear = new Date().getFullYear()
+    const targetYear = exerciseLogs.length
+      ? new Date(exerciseLogs[exerciseLogs.length - 1].date).getFullYear()
+      : fallbackYear
+    return Array.from({ length: 12 }, (_, index) => {
+      const date = new Date(targetYear, index, 1)
       return {
-        month: date.toLocaleDateString("es-ES", { month: "short" }),
-        maxWeight: 0,
+        monthKey: getMonthKey(date),
+        monthLabel: formatMonthLabel(date),
       }
     })
-    return fallbackMonths
+  }, [exerciseLogs])
+
+  const monthlyStatsByKey = useMemo(() => {
+    const map = new Map<string, (typeof monthlyStats)[number]>()
+    monthlyStats.forEach((stat) => map.set(stat.monthKey, stat))
+    return map
   }, [monthlyStats])
+
+  const chartData = useMemo(() => {
+    return fullYearMonths.map((month) => ({
+      month: month.monthLabel,
+      maxWeight: monthlyStatsByKey.get(month.monthKey)?.maxWeight ?? 0,
+    }))
+  }, [fullYearMonths, monthlyStatsByKey])
 
   const stats = useMemo(() => {
     if (!selectedExercise) return null
@@ -170,48 +179,22 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
   }, [stats?.maxWeight])
 
   const yTicks = useMemo(() => {
-    const max = Math.max(0, ...monthlyStats.map((stat) => stat.maxWeight))
+    const max = Math.max(0, ...chartData.map((stat) => stat.maxWeight))
     const step = 20
     const maxTick = Math.max(step, Math.ceil(max / step) * step)
     return Array.from({ length: maxTick / step + 1 }, (_, index) => index * step)
-  }, [monthlyStats])
+  }, [chartData])
 
   const tableRows = useMemo(() => {
-    if (monthlyStats.length > 0) {
-      return monthlyStats.map((stat) => ({
-        month: stat.monthLabel,
-        maxWeight: stat.maxWeight,
-        avgWeight: Math.round(stat.avgWeight * 10) / 10,
-      }))
-    }
-    return chartData.map((entry) => ({
-      month: entry.month,
-      maxWeight: 0,
-      avgWeight: 0,
-    }))
-  }, [monthlyStats, chartData])
-
-  const personalRecords = useMemo(() => {
-    const map = new Map<string, { weight: number; date: string }>()
-    logs.forEach((log) => {
-      const current = map.get(log.exerciseName)
-      if (!current || log.weight > current.weight) {
-        map.set(log.exerciseName, { weight: log.weight, date: log.date })
+    return fullYearMonths.map((month) => {
+      const stat = monthlyStatsByKey.get(month.monthKey)
+      return {
+        month: month.monthLabel,
+        maxWeight: stat?.maxWeight ?? null,
+        avgWeight: stat?.avgWeight ? Math.round(stat.avgWeight * 10) / 10 : null,
       }
     })
-    return Array.from(map.entries())
-      .map(([exercise, data]) => ({
-        exercise,
-        weight: data.weight,
-        date: new Date(data.date).toLocaleDateString("es-ES", {
-          day: "2-digit",
-          month: "short",
-          year: "numeric",
-        }),
-      }))
-      .sort((a, b) => b.weight - a.weight)
-      .slice(0, 5)
-  }, [logs])
+  }, [fullYearMonths, monthlyStatsByKey])
 
   return (
     <div className="space-y-6">
@@ -421,50 +404,24 @@ export default function ProgressView({ syncVersion = 0 }: { syncVersion?: number
           <CardDescription>Comparativa mensual de peso máximo y promedio</CardDescription>
         </CardHeader>
         <CardContent>
-          {tableRows.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No hay datos suficientes para construir la tabla.</p>
-          ) : (
-            <Table className="border border-border/70 rounded-lg overflow-hidden">
-              <TableHeader className="bg-muted/60">
-                <TableRow className="hover:bg-muted/60">
-                  <TableHead className="text-foreground">Mes</TableHead>
-                  <TableHead className="text-foreground">Peso máximo</TableHead>
-                  <TableHead className="text-foreground">Peso promedio</TableHead>
+          <Table className="border border-border/70 rounded-lg overflow-hidden">
+            <TableHeader className="bg-muted/60">
+              <TableRow className="hover:bg-muted/60">
+                <TableHead className="text-foreground">Mes</TableHead>
+                <TableHead className="text-foreground">Peso máximo</TableHead>
+                <TableHead className="text-foreground">Peso promedio</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tableRows.map((row) => (
+                <TableRow key={row.month} className="hover:bg-muted/30">
+                  <TableCell className="font-medium text-foreground">{row.month}</TableCell>
+                  <TableCell className="text-foreground">{row.maxWeight !== null ? `${row.maxWeight} kg` : "—"}</TableCell>
+                  <TableCell className="text-foreground">{row.avgWeight !== null ? `${row.avgWeight} kg` : "—"}</TableCell>
                 </TableRow>
-              </TableHeader>
-              <TableBody>
-                {tableRows.map((row) => (
-                  <TableRow key={row.month} className="hover:bg-muted/30">
-                    <TableCell className="font-medium text-foreground">{row.month}</TableCell>
-                    <TableCell className="text-foreground">{row.maxWeight !== null ? `${row.maxWeight} kg` : "-"}</TableCell>
-                    <TableCell className="text-foreground">{row.avgWeight !== null ? `${row.avgWeight} kg` : "-"}</TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Muro de Trofeos</CardTitle>
-          <CardDescription>Los 5 levantamientos más fuertes registrados</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {personalRecords.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Aún no hay récords para mostrar.</p>
-          ) : (
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-              {personalRecords.map((record) => (
-                <div key={record.exercise} className="rounded-xl border border-border/70 bg-muted/30 p-4 text-center">
-                  <p className="text-sm font-semibold text-foreground">{record.exercise}</p>
-                  <p className="text-2xl font-bold text-emerald-400 mt-2">{record.weight} kg</p>
-                  <p className="text-xs text-muted-foreground mt-1">{record.date}</p>
-                </div>
               ))}
-            </div>
-          )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
     </div>
