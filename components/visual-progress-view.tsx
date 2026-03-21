@@ -148,15 +148,25 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
   }
 
   const handleSave = () => {
-    if (!frontPreview || !sidePreview) return
+    const nextFront = frontPreview || currentEntry?.frontUrl || ""
+    const nextSide = sidePreview || currentEntry?.sideUrl || ""
+    if (!nextFront && !nextSide) return
+
     const entry: ProgressPhoto = {
       id: currentEntry?.id || `${selectedMonth}-${Date.now()}`,
       month: selectedMonth,
-      frontUrl: frontPreview,
-      sideUrl: sidePreview,
+      frontUrl: nextFront,
+      sideUrl: nextSide,
       createdAt: currentEntry?.createdAt || new Date().toISOString(),
     }
-    storageService.upsertPhoto(entry)
+
+    try {
+      storageService.upsertPhoto(entry)
+    } catch {
+      window.alert("No se pudo guardar la foto. Prueba con una imagen más ligera.")
+      return
+    }
+
     setEntries((prev) => {
       const index = prev.findIndex((item) => item.month === selectedMonth)
       if (index >= 0) {
@@ -251,7 +261,11 @@ export default function VisualProgressView({ syncVersion = 0 }: { syncVersion?: 
             />
           </div>
 
-          <Button onClick={handleSave} disabled={!frontPreview || !sidePreview} className="h-11 px-5">
+          <Button
+            onClick={handleSave}
+            disabled={!frontPreview && !sidePreview && !currentEntry?.frontUrl && !currentEntry?.sideUrl}
+            className="h-11 px-5"
+          >
             Guardar fotos del mes
           </Button>
 

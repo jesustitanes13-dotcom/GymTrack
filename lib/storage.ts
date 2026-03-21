@@ -21,6 +21,8 @@ const STORAGE_KEYS = {
   REMINDERS: "gym_tracker_reminders",
   REST_SETTINGS: "gym_tracker_rest_settings",
   REMINDER_LAST_SENT: "gym_tracker_reminder_last_sent",
+  EMAIL_REMINDER_LAST_SENT: "gym_tracker_email_reminder_last_sent",
+  EMAIL_REMINDER_LAST_ATTEMPT: "gym_tracker_email_reminder_last_attempt",
   WEEKLY_RESET: "gym_tracker_weekly_reset",
   WEEKLY_SUMMARY_LAST_SENT: "gym_tracker_weekly_summary_last_sent",
   EXERCISE_NOTES: "gym_tracker_exercise_notes",
@@ -392,6 +394,26 @@ export const storageService = {
   setReminderLastSent: (dateKey: string) => {
     if (typeof window === "undefined") return
     localStorage.setItem(STORAGE_KEYS.REMINDER_LAST_SENT, dateKey)
+  },
+
+  getEmailReminderLastSent: (): string | null => {
+    if (typeof window === "undefined") return null
+    return localStorage.getItem(STORAGE_KEYS.EMAIL_REMINDER_LAST_SENT)
+  },
+
+  setEmailReminderLastSent: (dateKey: string) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.EMAIL_REMINDER_LAST_SENT, dateKey)
+  },
+
+  getEmailReminderLastAttempt: (): string | null => {
+    if (typeof window === "undefined") return null
+    return localStorage.getItem(STORAGE_KEYS.EMAIL_REMINDER_LAST_ATTEMPT)
+  },
+
+  setEmailReminderLastAttempt: (timestamp: string) => {
+    if (typeof window === "undefined") return
+    localStorage.setItem(STORAGE_KEYS.EMAIL_REMINDER_LAST_ATTEMPT, timestamp)
   },
 
   getWeeklySummaryLastSent: (): string | null => {

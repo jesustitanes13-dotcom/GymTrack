@@ -8,6 +8,7 @@ import { buildWeeklySummary, getDayKey, getWeekKey, parseSetsReps } from "@/lib/
 const SUMMARY_EMAIL = "jesustitanes13@gmail.com"
 const ACCENT_COLOR = "#22d3ee"
 const BACKGROUND_COLOR = "#121212"
+const EMAIL_RETRY_COOLDOWN_MINUTES = 30
 
 export default function ReminderScheduler() {
   useEffect(() => {
@@ -17,38 +18,50 @@ export default function ReminderScheduler() {
       const [targetHour, targetMinute] = settings.time.split(":").map((value) => Number.parseInt(value, 10))
       if (Number.isNaN(targetHour) || Number.isNaN(targetMinute)) return
 
-      if (now.getHours() !== targetHour || now.getMinutes() !== targetMinute) return
+      const targetTime = new Date(now)
+      targetTime.setHours(targetHour, targetMinute, 0, 0)
+      if (now < targetTime) return
 
       const dayName = now.toLocaleDateString("es-ES", { weekday: "long" })
       const capitalizedDay = dayName.charAt(0).toUpperCase() + dayName.slice(1)
 
       if (settings.enabled && settings.days.includes(capitalizedDay)) {
-        const lastSent = storageService.getReminderLastSent()
         const dayKey = getDayKey(now)
-        if (lastSent !== dayKey) {
-          const routines = storageService.getRoutines()
-          const routine = routines.find((item) => item.day === capitalizedDay)
-          const logs = storageService.getLogs()
-          const { subject, html, text } = buildDailyReminderEmail(capitalizedDay, routine, logs)
+        const routines = storageService.getRoutines()
+        const routine = routines.find((item) => item.day === capitalizedDay)
+        const logs = storageService.getLogs()
+        const { subject, html, text } = buildDailyReminderEmail(capitalizedDay, routine, logs)
 
-          if (settings.notifyInApp) {
+        if (settings.notifyInApp) {
+          const lastLocalSent = storageService.getReminderLastSent()
+          if (lastLocalSent !== dayKey) {
             sendLocalNotification(text)
+            storageService.setReminderLastSent(dayKey)
           }
+        }
 
-          if (settings.emailEnabled && settings.email) {
-            void sendEmailReminder({
-              email: settings.email,
-              subject,
-              html,
-              text,
-            }).then((result) => {
-              if (!result.ok && settings.notifyInApp) {
-                sendLocalNotification(result.message || "No se pudo enviar el recordatorio por email.")
-              }
-            })
+        if (settings.emailEnabled && settings.email) {
+          const lastEmailSent = storageService.getEmailReminderLastSent()
+          if (lastEmailSent !== dayKey) {
+            const lastAttemptRaw = storageService.getEmailReminderLastAttempt()
+            const lastAttempt = lastAttemptRaw ? new Date(lastAttemptRaw).getTime() : 0
+            const cooldownMs = EMAIL_RETRY_COOLDOWN_MINUTES * 60 * 1000
+            if (!lastAttempt || now.getTime() - lastAttempt >= cooldownMs) {
+              storageService.setEmailReminderLastAttempt(now.toISOString())
+              void sendEmailReminder({
+                email: settings.email,
+                subject,
+                html,
+                text,
+              }).then((result) => {
+                if (result.ok) {
+                  storageService.setEmailReminderLastSent(dayKey)
+                } else if (settings.notifyInApp) {
+                  sendLocalNotification(result.message || "No se pudo enviar el recordatorio por email.")
+                }
+              })
+            }
           }
-
-          storageService.setReminderLastSent(dayKey)
         }
       }
 
