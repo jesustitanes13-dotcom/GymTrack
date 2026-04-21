@@ -58,15 +58,19 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
     setStatus("sending")
     setMessage(null)
     const redirectTo = getAuthRedirectUrl()
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: {
-        emailRedirectTo: redirectTo,
-      },
-    })
+    const signInPayload =
+      redirectTo.length > 0
+        ? {
+            email,
+            options: {
+              emailRedirectTo: redirectTo,
+            },
+          }
+        : { email }
+    const { error } = await supabase.auth.signInWithOtp(signInPayload)
     if (error) {
       setStatus("error")
-      setMessage("No se pudo enviar el enlace. Revisa el email.")
+      setMessage(getReadableAuthError(error.message))
       return
     }
     setStatus("sent")
@@ -124,10 +128,12 @@ export default function SupabaseAuth({ onAuthChange }: { onAuthChange?: (userId:
 }
 
 function getAuthRedirectUrl() {
-  const envUrl = process.env.NEXT_PUBLIC_SITE_URL
+  const envUrl = process.env.NEXT_PUBLIC_SITE_URL?.trim()
   if (envUrl) return envUrl
   if (typeof window === "undefined") return ""
-  return window.location.origin
+  const origin = window.location.origin
+  if (!origin || origin.includes("localhost")) return ""
+  return origin
 }
 
 function parseAuthErrorFromHash() {
@@ -153,4 +159,19 @@ function clearAuthHash() {
   if (typeof window === "undefined") return
   if (!window.location.hash) return
   window.history.replaceState(null, document.title, window.location.pathname + window.location.search)
+}
+
+function getReadableAuthError(rawMessage: string) {
+  const message = rawMessage.toLowerCase()
+  if (message.includes("email rate limit")) {
+    return "Has solicitado muchos enlaces. Espera un momento e inténtalo otra vez."
+  }
+  if (message.includes("invalid email")) {
+    return "El email no es válido."
+  }
+  if (message.includes("redirect")) {
+    return "Error de redirección. Configura NEXT_PUBLIC_SITE_URL con una URL permitida en Supabase."
+  }
+  if (rawMessage.trim().length > 0) return rawMessage
+  return "No se pudo enviar el enlace. Revisa el email y vuelve a intentarlo."
 }
